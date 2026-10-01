@@ -23454,6 +23454,296 @@ names it in `fields', or a workflow adds it to that setting."
           (org-records-mcp-test--file-link test-file "*Waiting on a child")))
         t)))))
 
+;;; Log
+
+;; A heading's log notes, parsed into entries by the headings
+;; `org-log-note-headings' gives them, newest first.
+
+(defconst org-records-mcp-test--content-log
+  (concat
+   "* TODO Task\n"
+   ":LOGBOOK:\n"
+   "- State \"TODO\"       from \"NEXT\"       [2026-03-05 Thu 10:00] \\\\\n"
+   "  agent: moved back,\n"
+   "    indented further\n"
+   "  last line\n"
+   "CLOCK: [2026-03-04 Wed 09:00]--[2026-03-04 Wed 10:00] =>  1:00\n"
+   "- Finished the draft.\n"
+   "- Rescheduled from \"[2026-03-01 Sun]\" on [2026-03-03 Tue 08:00]\n"
+   "- State \"NEXT\"       from              [2026-03-02 Mon 08:00]\n"
+   "- Note taken on [2026-03-01 Sun 12:00] \\\\\n"
+   "  First line.\n"
+   "\n"
+   "  - a nested item\n"
+   "  - another\n"
+   "- A line someone typed.\n"
+   ":END:\n"
+   "Body.\n"
+   "* Plain\n"
+   "* Empty drawer\n"
+   ":LOGBOOK:\n"
+   ":END:\n"
+   "* Clocked only\n"
+   ":LOGBOOK:\n"
+   "CLOCK: [2026-03-04 Wed 09:00]--[2026-03-04 Wed 10:00] =>  1:00\n"
+   ":END:\n")
+  "A LOGBOOK as Org writes it, newest entry first, and three without one.
+Task's drawer holds a state change with prose, a clock-out note
+after its CLOCK line, a reschedule, a state change from no state,
+a note whose prose carries a blank line and a nested list, and an
+item someone typed by hand.  Plain has no drawer, Empty drawer an
+empty one and Clocked only nothing but a clock.")
+
+(defconst org-records-mcp-test--log-of-task
+  [((kind . "state")
+    (time . "[2026-03-05 Thu 10:00]")
+    (from . "NEXT")
+    (to . "TODO")
+    (text . "agent: moved back,\n  indented further\nlast line"))
+   ((kind . "clock-out") (text . "Finished the draft."))
+   ((kind . "reschedule")
+    (time . "[2026-03-03 Tue 08:00]")
+    (from . "[2026-03-01 Sun]"))
+   ((kind . "state") (time . "[2026-03-02 Mon 08:00]") (to . "NEXT"))
+   ((kind . "note")
+    (time . "[2026-03-01 Sun 12:00]")
+    (text . "First line.\n\n- a nested item\n- another"))
+   ((text . "A line someone typed."))]
+  "The `log' a read of Task in `org-records-mcp-test--content-log' answers.")
+
+(defun org-records-mcp-test--log-of (test-file title)
+  "Return the `log' a read of the heading TITLE in TEST-FILE carries."
+  (alist-get
+   'log
+   (org-records-mcp-test--read-fields
+    (org-records-mcp-test--file-link test-file (concat "*" title))
+    ["log"])))
+
+(ert-deftest org-records-mcp-test-log-parses-the-drawer ()
+  "A heading's log is its drawer's entries, newest first, clocks left out.
+Each entry names its kind, the time its heading line carries, the
+states or dates it moved between, and the prose under it with the
+indentation Org wrote stripped.  A clock-out note is the item right
+after its CLOCK line, since its heading is empty, and an item no
+heading matches carries its text and no kind."
+  (org-records-mcp-test--with-temp-org-files
+      ((test-file org-records-mcp-test--content-log))
+    (let ((org-log-into-drawer t))
+      (should
+       (equal (org-records-mcp-test--log-of test-file "Task")
+              org-records-mcp-test--log-of-task)))))
+
+(ert-deftest org-records-mcp-test-log-left-out-when-empty ()
+  "A node with no log entry carries no `log' key.
+No drawer, an empty drawer and a drawer holding only clocks all
+leave it out, as does a file, rather than sending an empty list."
+  (org-records-mcp-test--with-temp-org-files
+      ((test-file org-records-mcp-test--content-log))
+    (let ((org-log-into-drawer t))
+      (dolist (title '("Plain" "Empty drawer" "Clocked only"))
+        (should
+         (equal
+          (org-records-mcp-test--read-fields
+           (org-records-mcp-test--file-link test-file (concat "*" title))
+           ["title" "log"])
+          `((title . ,title)))))
+      (should
+       (equal
+        (org-records-mcp-test--read-fields
+         (concat "file:" test-file) ["level" "log"])
+        '((level . 0)))))))
+
+(ert-deftest org-records-mcp-test-log-newest-first-either-order ()
+  "The log is newest first whichever order the file keeps it in.
+Under `org-log-states-order-reversed' Org writes the newest entry at
+the top, and without it at the bottom; the file's own #+STARTUP
+line says which, and the answer is the same both ways."
+  (let ((newest-first
+         (concat
+          "* TODO Task\n"
+          ":LOGBOOK:\n"
+          "- Note taken on [2026-03-02 Mon 08:00] \\\\\n"
+          "  second\n"
+          "- Note taken on [2026-03-01 Sun 08:00] \\\\\n"
+          "  first\n"
+          ":END:\n"))
+        (oldest-first
+         (concat
+          "#+STARTUP: nologstatesreversed\n"
+          "* TODO Task\n"
+          ":LOGBOOK:\n"
+          "- Note taken on [2026-03-01 Sun 08:00] \\\\\n"
+          "  first\n"
+          "- Note taken on [2026-03-02 Mon 08:00] \\\\\n"
+          "  second\n"
+          ":END:\n"))
+        (expected
+         [((kind . "note") (time . "[2026-03-02 Mon 08:00]")
+           (text . "second"))
+          ((kind . "note") (time . "[2026-03-01 Sun 08:00]")
+           (text . "first"))]))
+    (org-records-mcp-test--with-temp-org-files
+        ((reversed newest-first) (chronological oldest-first))
+      (let ((org-log-into-drawer t)
+            (org-log-states-order-reversed t))
+        (should
+         (equal (org-records-mcp-test--log-of reversed "Task") expected))
+        (should
+         (equal (org-records-mcp-test--log-of chronological "Task")
+                expected))))))
+
+(defun org-records-mcp-test--log-escape-in (heading escapes)
+  "Return whether HEADING carries one of ESCAPES, width specs allowed.
+The escapes are told apart by case, as %s and %S are."
+  (let ((case-fold-search nil))
+    (string-match-p
+     (concat "%-?[0-9.]*" (regexp-opt escapes)) heading)))
+
+(ert-deftest org-records-mcp-test-log-reads-what-org-writes ()
+  "Every entry Org writes for a purpose reads back as that purpose.
+For each purpose `org-log-note-headings' gives a heading line, under
+Org's default headings and under headings of the user's own in
+another language, an entry written through `org-store-log-note'
+reads back with that kind, the prose written under it, a time when
+the heading carries one, and the states when it names them.  The
+log is newest first, so it lists the purposes in reverse."
+  (dolist
+      (headings
+       (list
+        (default-value 'org-log-note-headings)
+        '((done . "ABGESCHLOSSEN %T")
+          (state . "Status %s, vorher %-10S, am %d")
+          (note . "Notiz von %u am %t:")
+          (reschedule . "%U verschob von %S am %D")
+          (refile . "Abgelegt %t")
+          (clock-out . ""))))
+    (org-records-mcp-test--with-temp-org-files
+        ((test-file "* TODO Task\nBody.\n"))
+      (let* ((org-log-into-drawer t)
+             (org-log-states-order-reversed t)
+             (org-log-note-headings headings)
+             ;; %U writes it, and a batch Emacs may have none.
+             (user-full-name "Ada Lovelace")
+             (purposes
+              (cl-remove-if
+               (lambda (entry) (string-empty-p (cdr entry))) headings)))
+        (with-current-buffer (find-file-noselect test-file)
+          (dolist (entry purposes)
+            (goto-char (point-min))
+            (org-records-mcp--insert-log-note
+             (format "prose of %s\n  indented" (car entry))
+             (car entry)
+             "NEW"
+             "OLD"))
+          (save-buffer))
+        (let ((log (org-records-mcp-test--log-of test-file "Task")))
+          (should (= (length log) (length purposes)))
+          (cl-loop
+           for entry in (reverse purposes) for read across log do
+           (let ((heading (cdr entry)))
+             (should
+              (equal (alist-get 'kind read) (symbol-name (car entry))))
+             (should
+              (equal (alist-get 'text read)
+                     (format "prose of %s\n  indented" (car entry))))
+             (should
+              (equal (and (alist-get 'time read)
+                          (string-match-p
+                           (concat "\\`" org-ts-regexp-both "\\'")
+                           (alist-get 'time read))
+                          t)
+                     (and (org-records-mcp-test--log-escape-in
+                           heading '("t" "T" "d" "D"))
+                          t)))
+             (should
+              (equal (alist-get 'from read)
+                     (and (org-records-mcp-test--log-escape-in
+                           heading '("S"))
+                          "OLD")))
+             (should
+              (equal (alist-get 'to read)
+                     (and (org-records-mcp-test--log-escape-in
+                           heading '("s"))
+                          "NEW"))))))))))
+
+(ert-deftest org-records-mcp-test-log-reads-the-drawer-org-logs-into ()
+  "The log is read from the drawer `org-log-into-drawer' names.
+A heading's LOG_INTO_DRAWER property names a drawer of its own, and
+the log is that drawer's, whatever LOGBOOK holds.  With logging into
+no drawer the log is LOGBOOK's, where a drawer's notes are kept."
+  (org-records-mcp-test--with-temp-org-files
+      ((test-file
+        (concat
+         "* TODO Own drawer\n"
+         ":PROPERTIES:\n"
+         ":LOG_INTO_DRAWER: NOTES\n"
+         ":END:\n"
+         ":LOGBOOK:\n"
+         "- Note taken on [2026-03-01 Sun 08:00] \\\\\n"
+         "  in the logbook\n"
+         ":END:\n"
+         ":NOTES:\n"
+         "- Note taken on [2026-03-02 Mon 08:00] \\\\\n"
+         "  in notes\n"
+         ":END:\n"
+         "* TODO Logbook\n"
+         ":LOGBOOK:\n"
+         "- Note taken on [2026-03-01 Sun 08:00] \\\\\n"
+         "  in the logbook\n"
+         ":END:\n")))
+    (dolist (setting '(t nil "LOGBOOK"))
+      (let ((org-log-into-drawer setting))
+        (should
+         (equal (org-records-mcp-test--log-of test-file "Own drawer")
+                [((kind . "note") (time . "[2026-03-02 Mon 08:00]")
+                  (text . "in notes"))]))
+        (should
+         (equal (org-records-mcp-test--log-of test-file "Logbook")
+                [((kind . "note") (time . "[2026-03-01 Sun 08:00]")
+                  (text . "in the logbook"))]))))))
+
+(ert-deftest org-records-mcp-test-log-reads-back-a-note-a-call-added ()
+  "A note org-node-add-note writes is the newest entry of the log."
+  (org-records-mcp-test--with-temp-org-files
+      ((test-file org-records-mcp-test--content-log))
+    (let ((org-log-into-drawer t)
+          (link (org-records-mcp-test--file-link test-file "*Task")))
+      (mcp-server-lib-ert-call-tool
+       "org-node-add-note"
+       `((link . ,link) (note . "agent: a question\non two lines")))
+      (let ((log (org-records-mcp-test--log-of test-file "Task")))
+        (should (= (length log) 7))
+        (should (equal (alist-get 'kind (aref log 0)) "note"))
+        (should
+         (equal (alist-get 'text (aref log 0))
+                "agent: a question\non two lines"))
+        (should
+         (equal (seq-subseq log 1) org-records-mcp-test--log-of-task))))))
+
+(ert-deftest org-records-mcp-test-log-on-a-read-unasked-on-a-list-asked ()
+  "A read carries `log' unasked; a match list carries it when asked.
+A list is an overview, so `org-records-mcp-list-fields' leaves it out
+out of the box, and a call or that setting names it."
+  (org-records-mcp-test--with-temp-org-files
+      ((test-file org-records-mcp-test--content-log))
+    (let ((org-log-into-drawer t))
+      (should
+       (equal
+        (alist-get
+         'log
+         (org-records-mcp-test--node-shape-read
+          (org-records-mcp-test--file-link test-file "*Task")))
+        org-records-mcp-test--log-of-task))
+      (should-not
+       (seq-some
+        (lambda (match) (assq 'log match))
+        (alist-get
+         'children (org-records-mcp-test--call-ql-query "(todo)"))))
+      (should
+       (equal
+        (org-records-mcp-test--query-fields "(todo)" ["title" "log"])
+        `[((title . "Task") (log . ,org-records-mcp-test--log-of-task))])))))
+
 ;;; Asking for the fields you want
 
 ;; A call says how much of a node it wants and gets exactly that.
@@ -23523,9 +23813,9 @@ The request is built from the list a call is checked against, so a
 field named there that the builder does not build fails here rather
 than reaching a client as a refusal.
 
-A heading carries every field but `closed' and `breadcrumbs' here,
-which stand for the fields left out when empty: Parent is open and
-at the top level.  A file carries the ones a file has.
+A heading carries every field but `closed', `breadcrumbs' and `log'
+here, which stand for the fields left out when empty: Parent is open,
+at the top level and has no log.  A file carries the ones a file has.
 No field of either is the Org drawer: that is a namespace of the
 user's, asked for in its own parameter.  Both digests are there for
 either: a region always has one, even when it is empty."
@@ -23538,7 +23828,8 @@ either: a region always has one, even when it is empty."
          #'car
          (org-records-mcp-test--read-fields
           (concat "id:" org-records-mcp-test--node-shape-parent-id) every))
-        (seq-difference org-records-mcp--node-fields '(closed breadcrumbs))))
+        (seq-difference org-records-mcp--node-fields
+                        '(closed breadcrumbs log))))
       (should
        (equal
         (mapcar
@@ -29858,6 +30149,10 @@ CLOSED: [2026-03-01 Sun 10:00] DEADLINE: <2026-04-01 Wed> SCHEDULED: <2026-03-27
 :ID:       advertised-fields-id-001
 :Effort:   1:00
 :END:
+:LOGBOOK:
+- Note taken on [2026-03-02 Mon 09:00] \\\\
+  Looked into it.
+:END:
 Body text.
 *** Child
 "
@@ -29867,7 +30162,7 @@ guard asking whether every advertised field is built needs a node
 that has something to say in each of them.  Rich Task sits under
 Area so that it has an ancestor to carry as a breadcrumb, and is
 open so that whether it is blocked has an answer; the CLOSED line
-is read whatever the state.")
+is read whatever the state, and the LOGBOOK note is its log.")
 
 (defun org-records-mcp-test--advertised-fields-answered (link fields)
   "Return the field names a read of LINK asking for FIELDS answers with.

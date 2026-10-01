@@ -33,6 +33,7 @@ asked for, and the call tells the two apart, because it knows what it asked for.
 | =link=           | the link that names this node again                                                 |
 | =breadcrumbs=    | the headings above this one, outermost first                                        |
 | =blocked=        | whether marking the heading done is blocked                                         |
+| =log=            | the heading's log notes, newest first                                               |
 | =content=        | the body text, or a file's preamble before its first heading                        |
 | =content_digest= | an opaque token over the region =content= is read from                              |
 | =digest=         | an opaque token over the node's whole subtree                                       |
@@ -89,6 +90,43 @@ heading with a not-done TODO keyword, and left out of a heading with a done
 keyword or none, and of a file, since none of them has a change to done to
 block.
 
+A heading's =log= is the notes Org keeps in its log drawer — the one
+=org-log-into-drawer= names, a heading's own =LOG_INTO_DRAWER= property
+included, and =LOGBOOK= when it names none — newest first. =content= is the
+body below the drawers, so =log= is where the notes are read. Each entry is
+an object of what it has:
+
+| Key    | Carries                                                                                                 |
+|--------+---------------------------------------------------------------------------------------------------------|
+| =kind= | the purpose =org-log-note-headings= gives the entry's line: =note=, =state=, =reschedule=, and the rest |
+| =time= | the timestamp the line carries, as Org wrote it                                                         |
+| =from= | what the entry left behind: a =state='s previous keyword, a =reschedule='s or =redeadline='s old date   |
+| =to=   | the state a =state= entry moved to                                                                      |
+| =text= | the prose written under the line, its lines joined and the indentation Org added removed                |
+
+#+begin_src json
+"log": [
+  {"kind": "note", "time": "[2026-03-06 Fri 09:12]",
+   "text": "agent: is the second draft the one to send?"},
+  {"kind": "state", "time": "[2026-03-05 Thu 10:00]",
+   "from": "NEXT", "to": "WAIT"},
+  {"kind": "reschedule", "time": "[2026-03-03 Tue 08:00]",
+   "from": "[2026-03-01 Sun]"}
+]
+#+end_src
+
+The entries are parsed with the headings your =org-log-note-headings= sets,
+so headings in another language read as Org's English ones do, and a repeat
+of a repeating task is the =state= entry Org writes for it. A =clock-out=
+note, whose heading is empty, is the item right below its =CLOCK:= line. An
+item that matches no heading — one typed into the drawer by hand — carries
+its =text= and no =kind=. The order is newest first whether the file keeps
+its drawer newest first, Org's default, or oldest first under
+=#+STARTUP: nologstatesreversed=. =CLOCK:= lines are not entries: the clock
+tools read them (see [[file:clocking.org][Clock tracking]]). A heading with no entry, and a file,
+carry no =log=. A heading that logs into no drawer writes its notes into its
+body, where they are part of =content=.
+
 Example, a heading, as a read that asks for nothing in particular returns it:
 #+begin_src json
 {
@@ -104,6 +142,9 @@ Example, a heading, as a read that asks for nothing in particular returns it:
   "level": 1,
   "link": "id:550e8400-e29b-41d4-a716-446655440000",
   "blocked": false,
+  "log": [
+    {"kind": "state", "time": "[2026-03-20 Fri 09:00]", "to": "TODO"}
+  ],
   "content": "Body text here...",
   "children": [
     {"title": "Subtask", "todo": "NEXT", "level": 2,
