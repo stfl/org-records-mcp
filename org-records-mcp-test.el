@@ -23500,7 +23500,9 @@ empty one and Clocked only nothing but a clock.")
     (from . "NEXT")
     (to . "TODO")
     (text . "agent: moved back,\n  indented further\nlast line"))
-   ((kind . "clock-out") (text . "Finished the draft."))
+   ((kind . "clock-out")
+    (time . "[2026-03-04 Wed 10:00]")
+    (text . "Finished the draft."))
    ((kind . "reschedule")
     (time . "[2026-03-03 Tue 08:00]")
     (from . "[2026-03-01 Sun]"))
@@ -23524,8 +23526,9 @@ empty one and Clocked only nothing but a clock.")
 Each entry names its kind, the time its heading line carries, the
 states or dates it moved between, and the prose under it with the
 indentation Org wrote stripped.  A clock-out note is the item right
-after its CLOCK line, since its heading is empty, and an item no
-heading matches carries its text and no kind."
+after its CLOCK line, since its heading is empty, and carries the
+time that clock ended; an item no heading matches carries its text
+and no kind."
   (org-records-mcp-test--with-temp-org-files
       ((test-file org-records-mcp-test--content-log))
     (let ((org-log-into-drawer t))
@@ -23719,6 +23722,156 @@ no drawer the log is LOGBOOK's, where a drawer's notes are kept."
                 "agent: a question\non two lines"))
         (should
          (equal (seq-subseq log 1) org-records-mcp-test--log-of-task))))))
+
+(defun org-records-mcp-test--log-should-be-a-clock-out (entry prose)
+  "Assert ENTRY is the clock-out the test hour closes, carrying PROSE.
+Its time is the end of the CLOCK line it sits under, 11:00 on the
+first of January 2026, as Org wrote it."
+  (should (equal (mapcar #'car entry) '(kind time text)))
+  (should (equal (alist-get 'kind entry) "clock-out"))
+  (should
+   (string-match-p "\\`\\[2026-01-01 [A-Za-z]\\{2,3\\} 11:00\\]\\'"
+                   (alist-get 'time entry)))
+  (should (equal (alist-get 'text entry) prose)))
+
+(ert-deftest org-records-mcp-test-log-reads-back-a-clock-out-note ()
+  "A note org-clock-out writes reads back as the clock-out entry.
+Org writes it under the CLOCK line it closed, wherever that sits in
+the drawer, so it is the newest entry whichever order the file keeps
+its notes in, and an older note below or above it follows it."
+  (dolist
+      (content
+       (list
+        (concat
+         "* TODO Task One\n"
+         ":LOGBOOK:\n"
+         "CLOCK: [2026-01-01 Thu 10:00]\n"
+         "- Note taken on [2025-12-31 Wed 09:00] \\\\\n"
+         "  older\n"
+         ":END:\n")
+        (concat
+         "#+STARTUP: nologstatesreversed\n"
+         "* TODO Task One\n"
+         ":LOGBOOK:\n"
+         "- Note taken on [2025-12-31 Wed 09:00] \\\\\n"
+         "  older\n"
+         "CLOCK: [2026-01-01 Thu 10:00]\n"
+         ":END:\n")))
+    (org-records-mcp-test--with-temp-org-files
+        ((test-file content))
+      (let ((org-log-note-clock-out t)
+            (org-log-into-drawer t)
+            (org-log-states-order-reversed t)
+            (link (org-records-mcp-test--file-link test-file "*Task One")))
+        (org-records-mcp-test--with-session-clock test-file
+          (org-records-mcp-test--call-clock-out
+           link "2026-01-01T11:00:00" "Stopped for the call.\nResume at 2.")
+          (let ((log (org-records-mcp-test--log-of test-file "Task One")))
+            (should (= (length log) 2))
+            (org-records-mcp-test--log-should-be-a-clock-out
+             (aref log 0) "Stopped for the call.\nResume at 2.")
+            (should
+             (equal (aref log 1)
+                    '((kind . "note")
+                      (time . "[2025-12-31 Wed 09:00]")
+                      (text . "older"))))))))))
+
+(ert-deftest org-records-mcp-test-log-reads-a-tab-indented-drawer ()
+  "Notes Org indents with a TAB read back as they were written.
+On a heading deep enough that `org-adapt-indentation' puts the body
+at column 8 or more, Org indents with a TAB under `indent-tabs-mode',
+so indentation is a column rather than a count of characters.  A
+note org-node-add-note writes and one org-clock-out writes both read
+back as sent."
+  (org-records-mcp-test--with-temp-org-files
+      ((test-file
+        (concat
+         "* A\n** B\n*** C\n**** D\n***** E\n****** F\n"
+         "******* TODO Deep\n"
+         "        :LOGBOOK:\n"
+         "        CLOCK: [2026-01-01 Thu 10:00]\n"
+         "        :END:\n")))
+    (let ((org-adapt-indentation t)
+          (org-log-note-clock-out t)
+          (org-log-into-drawer t)
+          (link (org-records-mcp-test--file-link test-file "*Deep")))
+      (org-records-mcp-test--with-session-clock test-file
+        (with-current-buffer (find-buffer-visiting test-file)
+          (setq-local indent-tabs-mode t))
+        (org-records-mcp-test--call-clock-out
+         link "2026-01-01T11:00:00" "clock line one\n  clock line two")
+        (mcp-server-lib-ert-call-tool
+         "org-node-add-note"
+         `((link . ,link) (note . "note line one\n  note line two")))
+        ;; Without a TAB in the drawer the test shows nothing.
+        (should
+         (string-match-p
+          "^\t" (org-records-mcp-test--read-file test-file)))
+        (let ((log (org-records-mcp-test--log-of test-file "Deep")))
+          (should (= (length log) 2))
+          (should (equal (alist-get 'kind (aref log 0)) "note"))
+          (should
+           (equal (alist-get 'text (aref log 0))
+                  "note line one\n  note line two"))
+          (org-records-mcp-test--log-should-be-a-clock-out
+           (aref log 1) "clock line one\n  clock line two"))))))
+
+(ert-deftest org-records-mcp-test-log-an-item-under-a-clock-is-a-clock-out ()
+  "An item no heading matches, right under a CLOCK line, is a clock-out.
+That is where Org writes a clock-out note, whose heading is empty, so
+the item is read as one whatever `org-log-note-clock-out' says, and
+carries the time its clock ended.  The kind is `clock-out' even when
+another purpose comes first in `org-log-note-headings' with an empty
+heading, and the first such purpose when `clock-out' has a heading
+of its own."
+  (let ((content
+         (concat
+          "* TODO Task\n"
+          ":LOGBOOK:\n"
+          "CLOCK: [2026-03-04 Wed 09:00]--[2026-03-04 Wed 10:00] =>  1:00\n"
+          "- phoned the vendor\n"
+          "- typed later\n"
+          ":END:\n")))
+    (org-records-mcp-test--with-temp-org-files
+        ((test-file content))
+      (let ((org-log-into-drawer t))
+        (dolist
+            (case
+             `((,(default-value 'org-log-note-headings) . "clock-out")
+               (((refile . "") (clock-out . "") (note . "Note %t"))
+                . "clock-out")
+               (((refile . "") (clock-out . "Out %t") (note . "Note %t"))
+                . "refile")))
+          (dolist (org-log-note-clock-out '(t nil))
+            (let ((org-log-note-headings (car case)))
+              (should
+               (equal (org-records-mcp-test--log-of test-file "Task")
+                      `[((kind . ,(cdr case))
+                         (time . "[2026-03-04 Wed 10:00]")
+                         (text . "phoned the vendor"))
+                        ((text . "typed later"))])))))))))
+
+(ert-deftest org-records-mcp-test-log-keeps-a-hand-item-whole ()
+  "An item typed by hand keeps all of its text but the bullet.
+A checkbox and a description tag are text the human wrote, so they
+stay in the entry's text.  Text in the drawer that is no list item
+is not an entry."
+  (org-records-mcp-test--with-temp-org-files
+      ((test-file
+        (concat
+         "* TODO Task\n"
+         ":LOGBOOK:\n"
+         "Called Bob, no answer.\n"
+         "- [X] did the thing\n"
+         "- who :: Bob called\n"
+         "1. [@3] numbered\n"
+         ":END:\n")))
+    (let ((org-log-into-drawer t))
+      (should
+       (equal (org-records-mcp-test--log-of test-file "Task")
+              [((text . "[X] did the thing"))
+               ((text . "who :: Bob called"))
+               ((text . "[@3] numbered"))])))))
 
 (ert-deftest org-records-mcp-test-log-on-a-read-unasked-on-a-list-asked ()
   "A read carries `log' unasked; a match list carries it when asked.

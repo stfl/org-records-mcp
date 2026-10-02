@@ -96,13 +96,13 @@ included, and =LOGBOOK= when it names none — newest first. =content= is the
 body below the drawers, so =log= is where the notes are read. Each entry is
 an object of what it has:
 
-| Key    | Carries                                                                                                 |
-|--------+---------------------------------------------------------------------------------------------------------|
-| =kind= | the purpose =org-log-note-headings= gives the entry's line: =note=, =state=, =reschedule=, and the rest |
-| =time= | the timestamp the line carries, as Org wrote it                                                         |
-| =from= | what the entry left behind: a =state='s previous keyword, a =reschedule='s or =redeadline='s old date   |
-| =to=   | the state a =state= entry moved to                                                                      |
-| =text= | the prose written under the line, its lines joined and the indentation Org added removed                |
+| Key    | Carries                                                                                                                                |
+|--------+----------------------------------------------------------------------------------------------------------------------------------------|
+| =kind= | the purpose =org-log-note-headings= gives the entry's line: =note=, =state=, =reschedule=, and the rest                                |
+| =time= | the timestamp the line carries, as Org wrote it; for a =clock-out= note, the end of its =CLOCK:= line                                  |
+| =from= | what the entry left behind: a =state='s previous keyword, the old date of a =reschedule=, =redeadline=, =delschedule= or =deldeadline= |
+| =to=   | the state a =state= entry moved to                                                                                                     |
+| =text= | the prose written under the line, its lines joined and the indentation Org added removed                                               |
 
 #+begin_src json
 "log": [
@@ -115,17 +115,29 @@ an object of what it has:
 ]
 #+end_src
 
-The entries are parsed with the headings your =org-log-note-headings= sets,
-so headings in another language read as Org's English ones do, and a repeat
-of a repeating task is the =state= entry Org writes for it. A =clock-out=
-note, whose heading is empty, is the item right below its =CLOCK:= line. An
-item that matches no heading — one typed into the drawer by hand — carries
-its =text= and no =kind=. The order is newest first whether the file keeps
-its drawer newest first, Org's default, or oldest first under
-=#+STARTUP: nologstatesreversed=. =CLOCK:= lines are not entries: the clock
-tools read them (see [[file:clocking.org][Clock tracking]]). A heading with no entry, and a file,
-carry no =log=. A heading that logs into no drawer writes its notes into its
-body, where they are part of =content=.
+The entries are parsed with the headings your =org-log-note-headings= sets
+now, so headings in another language read as Org's English ones do. An entry
+written under headings you have since changed matches none of them, and
+comes back with its whole item as =text= and no =kind=. A repeat of a
+repeating task is the =state= entry Org writes for it.
+
+A =clock-out= note has an empty heading, so its place is what names it: an
+item no heading matches, right below a =CLOCK:= line, is read as a
+=clock-out= note, whatever =org-log-note-clock-out= is set to, and its =time=
+is when that clock ended. Org writes a clock-out note in the drawer its clock
+is in, so the note is read only when =org-clock-into-drawer= puts clocks in
+the log drawer, as it does out of the box.
+
+Any other item that matches no heading — one typed into the drawer by hand —
+carries its =text= and no =kind=; its text is everything after the bullet, a
+checkbox or a =tag ::= included. Text in the drawer that is not a list item
+is not an entry, and neither are =CLOCK:= lines: the clock tools read those
+(see [[file:clocking.org][Clock tracking]]).
+
+The order is newest first whether the file keeps its drawer newest first,
+Org's default, or oldest first under =#+STARTUP: nologstatesreversed=. A
+heading with no entry, and a file, carry no =log=. A heading that logs into no
+drawer writes its notes into its body, where they are part of =content=.
 
 Example, a heading, as a read that asks for nothing in particular returns it:
 #+begin_src json
