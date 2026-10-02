@@ -52,6 +52,11 @@ A client about to replace a heading's tags asks for =local_tags= in =fields=,
 and has the set =org-node-set-tags= asserts without reading the heading again
 (see [[file:reading.org::*The two tag fields][The two tag fields]]).
 
+A client reading the notes left on its matches — an answer to a question it
+asked in a LOGBOOK, say — asks for =log= in =fields=, and each match carries
+its log entries, newest first (see [[file:reading.org::*The node][The node]]). A list leaves =log= out
+unasked, since it reads every match's drawer.
+
 *** Inherited properties in a query
 
 A match's =properties= are its own drawer, whatever =org-use-property-inheritance=

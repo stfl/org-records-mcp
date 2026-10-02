@@ -1718,6 +1718,7 @@ it unless TEXT ends in one or a line break follows point."
     link
     breadcrumbs
     blocked
+    log
     content
     content_digest
     digest
@@ -1756,6 +1757,7 @@ the call that reads it in full.")
     link
     breadcrumbs
     blocked
+    log
     content
     children)
   "The fields the org-node-read tool and the org://{link} resource carry.
@@ -2453,6 +2455,309 @@ siblings and children a narrowing hides, and point is not moved."
          t
        :json-false))))
 
+(defconst org-records-mcp--log-escapes
+  (let
+      ((quoted
+        (lambda (group)
+          (format " *\\(?:\"\\(?%d:[^\"\n]*\\)\"\\)? *" group)))
+       ;; Org's own timestamp regexps carry numbered groups of their
+       ;; own, which would renumber the three the parse reads, so the
+       ;; bracket shapes are spelled out here.
+       (inactive
+        "\\(?1:\\[[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}[^]\n]*\\]\\)")
+       (active
+        "\\(?1:<[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}[^>\n]*>\\)"))
+    `(("%t" . ,inactive)
+      ("%d" . ,inactive)
+      ("%T" . ,active)
+      ("%D" . ,active)
+      ("%s" . ,(funcall quoted 2))
+      ("%S" . ,(funcall quoted 3))
+      ("%u" . ".*?")
+      ("%U" . ".*?")))
+  "What each escape of `org-log-note-headings' matches in a log entry.
+`org-store-log-note' fills them: the time in group 1, the new state
+or date in group 2 and the old one in group 3, each of those two in
+the double quotes it writes and absent when it had none.  The
+spaces around them take up the padding a width such as %-12s adds.")
+
+(defun org-records-mcp--log-heading-regexp (heading)
+  "Return the regexp matching a log entry's line written from HEADING.
+HEADING is a value of `org-log-note-headings'.  The regexp matches
+the entry's whole first line, the \\\\ Org ends it with when prose
+follows included, and its groups are those
+`org-records-mcp--log-escapes' names.
+
+Org has no reader for the entries it writes: org-habit and the
+agenda's log mode each build a regexp from the heading they look
+for, quoting it and replacing its escapes, and this does the same
+for every heading.  A width is dropped before quoting, since the
+padding it writes is taken up by the escape itself."
+  (concat
+   "\\`"
+   (org-replace-escapes
+    (regexp-quote
+     (replace-regexp-in-string
+      "%-?[0-9.]*\\([a-zA-Z]\\)" "%\\1" heading
+      t))
+    org-records-mcp--log-escapes)
+   "\\(?:[ \t]+\\\\\\\\\\)?[ \t]*\\'"))
+
+(defun org-records-mcp--log-prose (lines)
+  "Return LINES as prose: joined, the indentation they share removed.
+LINES are indented with spaces alone, see
+`org-records-mcp--log-item-lines'.  Blank lines at either end are
+dropped, and nil means there is no prose.  `org-store-log-note'
+indents every line of a note to the column of the item's text, so
+removing what they share leaves the note as it was typed, its own
+indentation kept."
+  (let* ((lines
+          (reverse
+           (seq-drop-while
+            #'string-blank-p
+            (reverse (seq-drop-while #'string-blank-p lines)))))
+         (indent
+          (cl-loop
+           for
+           line
+           in
+           lines
+           unless
+           (string-blank-p line)
+           minimize
+           (- (length line) (length (string-trim-left line " +"))))))
+    (when lines
+      (mapconcat (lambda (line)
+                   (if (string-blank-p line)
+                       ""
+                     (substring line indent)))
+                 lines
+                 "\n"))))
+
+(defun org-records-mcp--log-item-lines (begin end)
+  "Return the lines of the list item from BEGIN to END, indented with spaces.
+Each line is indented to the column it starts at, whatever mix of
+spaces and TABs the file indents it with: Org indents a note's lines
+with a TAB once the item's text is 8 columns in and
+`indent-tabs-mode' is on.  The bullet of the first line is blanked
+to the same width, so its text keeps its column too, and what
+follows the bullet -- a checkbox, a counter, a description tag --
+is the item's text.  Nil when the item holds nothing but blanks."
+  (save-excursion
+    (goto-char begin)
+    (forward-line 0)
+    (let ((lines '()))
+      (while (< (point) end)
+        (if (and (null lines) (looking-at org-list-full-item-re))
+            (goto-char (match-end 1))
+          (back-to-indentation))
+        (push (concat
+               (make-string (current-column) ?\s)
+               (buffer-substring-no-properties
+                (point) (line-end-position)))
+              lines)
+        (forward-line))
+      (unless (seq-every-p #'string-blank-p lines)
+        (nreverse lines)))))
+
+(defun org-records-mcp--log-headings ()
+  "Return what log entries are told apart by, as (MATCHERS . UNDER-CLOCK).
+MATCHERS is a list of (PURPOSE . REGEXP), one for each purpose
+`org-log-note-headings' gives a heading line, in its order, REGEXP
+the one `org-records-mcp--log-heading-regexp' makes.  UNDER-CLOCK
+is the purpose of an item no heading matches that sits right under
+a CLOCK line: `clock-out' when its heading is empty, which is the
+note Org writes there, and otherwise the first purpose with an empty
+heading, or nil when none has one.  Empty is as `org-store-log-note'
+judges it, which writes no line for a blank heading.
+
+A log is read with one of these, built once, rather than building a
+regexp per heading for every entry it reads."
+  (let ((blank
+         (cl-remove-if
+          #'org-string-nw-p
+          org-log-note-headings
+          :key #'cdr)))
+    (cons
+     (cl-loop
+      for
+      (purpose . heading)
+      in
+      org-log-note-headings
+      when
+      (org-string-nw-p heading)
+      collect
+      (cons purpose (org-records-mcp--log-heading-regexp heading)))
+     (car (or (assq 'clock-out blank) (car blank))))))
+
+(defun org-records-mcp--clock-end (clock)
+  "Return the end of CLOCK, a clock element, as Org wrote it, or nil.
+Nil for a clock still running."
+  (let ((raw
+         (org-element-property
+          :raw-value (org-element-property :value clock))))
+    (when (and raw (string-match "--\\(\\[[^]\n]+\\]\\)\\'" raw))
+      (match-string 1 raw))))
+
+(defun org-records-mcp--log-entry (begin end clock headings)
+  "Return the log entry of the list item from BEGIN to END, or nil.
+The item is one at the top of a log drawer.  The entry is an alist of the `kind', `time', `from', `to' and `text'
+it has values for.  HEADINGS is what
+`org-records-mcp--log-headings' answers.  The item's first line is
+matched against each heading's regexp, and the purpose of the first
+that matches is its kind; the time and the two states are what that
+line carries, see `org-records-mcp--log-escapes', and the text is
+the prose under it.
+
+A purpose given an empty heading, such as `clock-out', writes the
+prose alone, so nothing in the item names it.  Org writes a
+clock-out note right below its clock, so an item no heading matches
+that sits right under CLOCK, the clock element above it or nil, is
+of the purpose HEADINGS names for that place, and its time is when
+that clock ended.  Any other item no heading matches carries its
+text and no kind.  An item with nothing in it is no entry, and gives
+nil."
+  (when-let* ((lines (org-records-mcp--log-item-lines begin end)))
+    (let* ((first (string-trim-left (car lines)))
+           ;; Org writes a heading's words as configured, so they
+           ;; are matched as written.
+           (case-fold-search nil)
+           (matched
+            (cl-loop
+             for (purpose . regexp) in (car headings) thereis
+             (and (string-match regexp first)
+                  (list
+                   purpose
+                   (match-string 1 first)
+                   (match-string 3 first)
+                   (match-string 2 first)))))
+           (placed (and (not matched) clock (cdr headings))))
+      (cl-loop
+       for
+       (key . value)
+       in
+       `((kind
+          .
+          ,(when-let* ((kind (or (car matched) placed)))
+             (symbol-name kind)))
+         (time
+          .
+          ,(if placed
+               (org-records-mcp--clock-end clock)
+             (nth 1 matched)))
+         (from . ,(nth 2 matched)) (to . ,(nth 3 matched))
+         (text
+          .
+          ,(org-records-mcp--log-prose
+            (if matched
+                (cdr lines)
+              lines))))
+       when
+       (and value (not (string-empty-p value)))
+       collect
+       (cons key value)))))
+
+(defun org-records-mcp--log-drawer-contents ()
+  "Return the contents of the log drawer of the heading at point.
+The value is (BEGIN . END), or nil for a heading without the
+drawer or with an empty one.  The drawer is the one
+`org-log-into-drawer' names for this heading, its LOG_INTO_DRAWER
+property counted, and LOGBOOK when it names none: a heading logging
+into no drawer writes its notes into its body, and a drawer's notes
+are kept in LOGBOOK.
+
+It is found as `org-log-beginning' finds it, the first drawer of
+that name below the heading's planning and properties.  That
+function cannot be asked, since it answers where the next note goes
+rather than whether there is a drawer.  The buffer is read widened
+and point is not moved."
+  (org-with-wide-buffer
+   (org-back-to-heading t)
+   (let ((regexp
+          (concat
+           "^[ \t]*:"
+           (regexp-quote (or (org-log-into-drawer) "LOGBOOK"))
+           ":[ \t]*$"))
+         (case-fold-search t))
+     (org-end-of-meta-data)
+     (let ((end
+            (if (org-at-heading-p)
+                (point)
+              (save-excursion
+                (outline-next-heading)
+                (point)))))
+       (catch 'found
+         (while (re-search-forward regexp end t)
+           (let ((element (org-element-at-point)))
+             (when (org-element-type-p element 'drawer)
+               (throw 'found
+                      (when-let* ((begin
+                                   (org-element-contents-begin
+                                    element)))
+                        (cons
+                         begin
+                         (org-element-contents-end element))))))))))))
+
+(defun org-records-mcp--log-at-point ()
+  "Return the log entries of the heading at point, newest first.
+Each is the alist `org-records-mcp--log-entry' makes of a list item
+of the drawer `org-records-mcp--log-drawer-contents' finds.  CLOCK
+lines are left out, since the clock tools answer for them, and so is
+any text in the drawer that is not a list item.  A clock-out note is
+read only when it is in this drawer: Org writes one under its CLOCK
+line, in the drawer `org-clock-into-drawer' names.
+
+Org writes the newest entry at the top of the drawer while
+`org-log-states-order-reversed' is on, which a file's #+STARTUP can
+turn off, and at the bottom otherwise; the drawer is read in the
+order that setting says, so the newest entry comes first either
+way.  The answer is nil when there is no entry, so the field is
+left out."
+  (when-let* ((bounds (org-records-mcp--log-drawer-contents)))
+    (org-with-wide-buffer
+     (goto-char (car bounds))
+     (let ((headings (org-records-mcp--log-headings))
+           (clock nil)
+           (entries '()))
+       ;; The drawer's elements are visited one at a time through
+       ;; `org-element-at-point', which answers from Org's element
+       ;; cache, rather than parsing the drawer afresh with
+       ;; `org-element-parse-buffer' on every read.
+       (while (progn
+                (skip-chars-forward " \t\n" (cdr bounds))
+                (< (point) (cdr bounds)))
+         (let* ((element (org-element-at-point))
+                (element
+                 (if (org-element-type-p element 'item)
+                     (org-element-parent element)
+                   element)))
+           (when (org-element-type-p element 'plain-list)
+             ;; The list's own items, those at its top; the ones nested
+             ;; under them are part of their text.
+             (let ((struct (org-element-property :structure element)))
+               (dolist (item
+                        (org-list-get-all-items
+                         (org-list-get-top-point struct)
+                         struct
+                         (org-list-prevs-alist struct)))
+                 (when-let* ((entry
+                              (org-records-mcp--log-entry
+                               item
+                               (org-list-get-item-end item struct)
+                               clock
+                               headings)))
+                   (push entry entries))
+                 ;; Only the first item sits right under the clock.
+                 (setq clock nil))))
+           (setq clock
+                 (and (org-element-type-p element 'clock) element))
+           (goto-char
+            (max (org-element-end element)
+                 (line-beginning-position 2)))))
+       (if org-log-states-order-reversed
+           (nreverse entries)
+         entries)))))
+
 (defun org-records-mcp--child-projection
     (fields properties computed depth)
   "Return what the children of a node asked for DEPTH carry.
@@ -2581,6 +2886,11 @@ known and the node finds them itself."
                (unless file-node
                  (org-records-mcp--blocked-at-point
                   (plist-get meta :todo))))
+              ('log
+               (unless file-node
+                 (when-let* ((entries
+                              (org-records-mcp--log-at-point)))
+                   (vconcat entries))))
               ('content
                (let* ((bounds
                        (org-records-mcp--node-content-bounds
@@ -8814,6 +9124,20 @@ itself says which.  Nothing is ever sent as null.
   blocked - Whether marking the heading done is blocked, as Org's
          org-blocker-hook answers: true or false on a heading with a
          not-done TODO keyword, and left out otherwise
+  log - The heading's log notes, newest first, read from the drawer
+         org-log-into-drawer names (LOGBOOK unless it names
+         another).  Each is an object of its kind (the purpose
+         org-log-note-headings gives it: note, state, done,
+         reschedule, delschedule, redeadline, deldeadline, refile,
+         clock-out, or one of the user's), the time its line
+         carries as Org wrote it, from and to (the states or dates
+         a change moved between) and text (the prose written under
+         it, indentation stripped), each left out when it has none.
+         An item right under a CLOCK line that no heading matches
+         is a clock-out note, timed by the clock's end; any other
+         item no heading matches carries text and no kind.  CLOCK
+         lines are not entries; the clock tools read them.  Left
+         out of a heading with no entry and of a file
   content - Body text, or a file's preamble before its first heading
   content_digest - Opaque token over the region content is read from
          and org-node-set-content writes within.  Send back the token

@@ -54,6 +54,12 @@ A heading's ancestors, outermost first, each named by its title, link and
 level. The file is not one, so a top-level heading has none.
 _Avoid_: path, outline path, ancestry
 
+**Log**:
+A heading's log notes, the entries Org writes into its log drawer as a state
+changes, a date moves or a note is taken, read newest first. Each names its
+kind by the heading Org wrote it under. CLOCK lines are not entries.
+_Avoid_: logbook (which is the drawer, not its entries), history, notes
+
 **Property**:
 A value from a node's own Org property drawer. It is part of the file, it
 survives a round trip, and a call names the properties it wants.
