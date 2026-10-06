@@ -130,9 +130,10 @@ it could be written. The surface has none.
 ** What a parameter is published as
 
 Every tool parameter is published with its JSON type, declared by name in
-=org-records-mcp--param-types=, or in =org-records-mcp--tool-param-types= when
-one tool means something else by it, as =before= and =after= usually do. A new
-parameter is declared there even when it is a plain string: registration fails
+=org-records-mcp--param-types=. =before=, =after= and =properties= mean
+something different on different tools, so a tool taking one declares it in
+=org-records-mcp--tool-param-types= instead. A new parameter is declared even
+when it is a plain string: registration fails
 on one the tables do not name, so a parameter cannot reach a client as the
 string =mcp-server-lib= publishes by default. The census in the test suite
 lists every tool's parameters and their types a second time, by hand, and a

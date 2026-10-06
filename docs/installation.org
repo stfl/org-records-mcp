@@ -127,17 +127,16 @@ To remove the installed wrapper, run =M-x org-records-mcp-uninstall=.
 Every tool's =inputSchema= gives each parameter its JSON type, so a client that
 checks its arguments against the schema sends each value as what it is:
 
-- =files= :: an array of strings.
-- =tags=, and =before= and =after= on the tag tools and =org-file-set-setting= :: a
-  string, or an array of strings.
+- =files= and =tags=, and =before= and =after= on the tag tools and
+  =org-file-set-setting= :: a string, or an array of strings.
 - =fields= :: an array of field names, or the name of a field list.
 - =computed=, and =properties= on =org-node-read=, =org-query= and =org-view= ::
   an array of names, or ="all"= or ="none"=.
 - =properties= on =org-node-create=, and =before= and =after= on
-  =org-node-set-properties= :: an object whose values are strings, numbers,
-  booleans or =null=.
+  =org-node-set-properties= :: an object of one property or more, whose values
+  are strings, numbers, booleans or =null=.
 - =before_planning= :: an object naming =scheduled=, =deadline= or both, and no
-  other key.
+  other key, each holding a timestamp.
 - =after= on =org-node-set-todo=, =org-node-set-scheduled=,
   =org-node-set-deadline= and =org-node-set-priority= :: a string, or =null=.
 - =depth= :: an integer, 0 or more.
@@ -153,8 +152,9 @@ tools, which is also when the =org-view= description is written. A name
 configured after that call is one the server accepts and a client checking the
 schema refuses, until =org-records-mcp-disable= and =org-records-mcp-enable=
 register the tools again and the client reconnects. A kind of name with
-nothing configured, such as filters in a setup that defines none, is published
-as a plain string.
+nothing configured publishes no =enum=: a filter or a range is then any string,
+a computed field any string in its array, and =fields= takes an array of field
+names alone.
 
 An optional parameter is published without =null=: leaving it out is how a
 call does without it. org-records-mcp still reads =null=, =false=, =""= and

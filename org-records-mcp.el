@@ -5440,7 +5440,7 @@ a file, which is the very confusion this parameter is here to end.
 
 MCP Parameters:
   link - Link to the file to answer for, or to a heading in it
-         (string, optional); left out, or null, false, \"\", [] or
+         (string, optional); left out, or \"\" or
          whitespace, the global configuration
   files - Files and directories to look up an id: link in, in order,
           instead of Emacs's ID index (array of strings, optional);
@@ -5606,8 +5606,8 @@ MCP Parameters:
   note - Optional note to attach to this state transition (string, optional)
          When provided, stored in LOGBOOK as the prose of the state
          change entry
-         Every blank -- \"\", whitespace, null, false and [] -- is
-         the parameter left out: the state change is made and no
+         \"\" or whitespace alone is the parameter left
+         out: the state change is made and no
          prose recorded
   files - Files and directories to look up an id: link in, in order,
           instead of Emacs's ID index (array of strings, optional);
@@ -5746,10 +5746,10 @@ MCP Parameters:
              - id:{id} of the file-level property drawer (top level
                of the file)
              - any of these as [[link]] or [[link][description]]
-  content - Optional body text; null, false and \"\" write no body,
+  content - Optional body text; \"\" writes no body,
             as leaving it out does
   tags - Tags to add (optional, single string or array of strings,
-         or the JSON text of such an array); null, false, \"\"
+         or the JSON text of such an array); \"\"
          and [] add none, as leaving it out does
   previous_sibling - Link to the sibling to insert after (optional),
                      a direct child of the parent, or a top-level
@@ -5771,8 +5771,8 @@ MCP Parameters:
                true or false writes the text t or nil
                Special properties (TODO, TAGS, PRIORITY, etc.) are
                forbidden
-               properties itself given as null, false, \"\" or {}
-               means no properties
+               properties left out means no properties; an
+               empty object is refused
                A client that sends every argument as a string sends
                the object as its JSON text, those characters in a
                string
@@ -8504,7 +8504,7 @@ MCP Parameters:
           string naming a configured list, optional); defaults to
           every field but the two digests
   depth - How many generations of children to expand in place
-          (number, optional); defaults to none
+          (integer, optional); defaults to none
   properties - Which Org drawer properties to return (array of
           property names, or \"all\" or \"none\", optional);
           defaults to all
@@ -8660,11 +8660,10 @@ MCP Parameters:
            - file:{absolute-path}::*{title} (first match)
            - any of these as [[link]] or [[link][description]]
   start_time - Optional ISO 8601 start time (e.g. 2026-03-23T14:30:00),
-          naming a time that exists; left out, or null, false, \"\",
-          [] or whitespace, the current time
-  resolve - true or \"true\" to delete dangling clocks before clocking
-            in; false, \"false\" and null mean not to, and any other
-            value is refused
+          naming a time that exists; left out, or \"\" or
+          whitespace, the current time
+  resolve - true to delete dangling clocks before clocking in;
+            false, or leaving it out, means not to
   files - Files and directories to look up an id: link in, in order,
           instead of Emacs's ID index (array of strings, optional);
           refused with any other link
@@ -8806,8 +8805,8 @@ MCP Parameters:
            - file:{absolute-path}::*{title} (first match)
            - any of these as [[link]] or [[link][description]]
   end_time - Optional ISO 8601 end time (e.g. 2026-03-23T16:45:00),
-          naming a time that exists; left out, or null, false, \"\",
-          [] or whitespace, the current time
+          naming a time that exists; left out, or \"\" or
+          whitespace, the current time
   files - Files and directories to look up an id: link in, in order,
           instead of Emacs's ID index (array of strings, optional);
           refused with any other link
@@ -9033,7 +9032,7 @@ parameter's first line.")
           files under it, and is refused when there are none.  The
           buffers the call opens for these files are closed
           afterwards.
-          null, false, \"\" and [] mean no files.
+          \"\" and [] mean no files, as leaving it out does.
           A client that sends every argument as a string sends the
           array as its JSON text, the characters
           [\"/home/you/notes.org\"] in a string.
@@ -9047,7 +9046,7 @@ Tool descriptions `concat' it after the parameter's first lines.")
           org-records-mcp-node-field-lists, sent as a string.  An unknown
           field name and an unknown list name are both refused, and
           the refusal names the valid ones.
-          null, false, \"\" and [] ask for the default.
+          [] asks for the default, as leaving it out does.
           A client that sends every argument as a string sends the
           array as its JSON text, the characters [\"title\",
           \"link\"] in a string.
@@ -9065,7 +9064,7 @@ parameter.")
           the node does not carry is left out, as an empty field is;
           a special property, which Org computes rather than stores,
           is refused and named as a node field instead.
-          null, false, \"\" and [] ask for the default.
+          [] asks for the default, as leaving it out does.
           A client that sends every argument as a string sends the
           array as its JSON text, the characters [\"Effort\"] in a
           string.
@@ -9080,7 +9079,7 @@ for `fields'.")
           for none, sent as a string.  A name nobody configured is
           refused, and the refusal names the ones that are.  A field
           whose function answers with nothing is left out.
-          null, false, \"\" and [] ask for the default.
+          [] asks for the default, as leaving it out does.
           A client that sends every argument as a string sends the
           array as its JSON text, the characters [\"rank\"] in a
           string.
@@ -9190,7 +9189,7 @@ Parameters:
          A file carrying no `#+TODO:', `#+SEQ_TODO:' or
          `#+TYP_TODO:' setting of its own inherits the global
          sequences and is answered with them.
-         Left out, or null, false, \"\", [] or whitespace, the
+         Left out, or \"\" or whitespace, the
          answer is the global configuration.
   files - Files and directories to look up an id: link in, in order,
           instead of Emacs's ID index (array of strings, optional);
@@ -9523,7 +9522,7 @@ Parameters:
           Cannot be empty or whitespace-only
           Cannot contain newlines
   todo - TODO keyword from org-todo-keywords (string, optional)
-         Left out, or null, false, \"\" or [], makes a heading
+         Left out, or \"\", makes a heading
          with no keyword: a node that is not a task.  A value that names no
          keyword is refused
   tags - Tags for the node (string or array, optional)
@@ -9534,9 +9533,9 @@ Parameters:
          Validated against org-tag-alist if configured
          Must follow Org tag rules (alphanumeric, _, @)
          Respects mutually exclusive tag groups
-         Left out, or null, false, \"\" or [], sets no tags
+         Left out, or \"\" or [], sets no tags
   content - Body content of the node (string, optional)
-            Left out, or null, false, \"\" or [], writes no body
+            Left out, or \"\", writes no body
             Cannot contain headlines at same or higher level as new
             item
             If #+BEGIN/#+END blocks are present, they must be balanced
@@ -9552,7 +9551,7 @@ Parameters:
                      a direct child of the parent, or a top-level
                      heading of the file when parent names the whole
                      file.  Its id: link is looked up in the parent's
-                     file.  Left out, or null, false, \"\", [] or
+                     file.  Left out, or \"\" or
                      whitespace, appends as last child of parent
   properties - Properties for the new node (object, optional)
                e.g. {\"ID\": \"...\", \"CUSTOM_ID\": \"...\",
@@ -9571,8 +9570,8 @@ Parameters:
                Special properties (TODO, TAGS, PRIORITY, SCHEDULED,
                DEADLINE, etc.) are forbidden - use the other
                parameters and dedicated tools
-               properties itself given as null, false, \"\" or {}
-               means no properties
+               properties left out means no properties; an
+               empty object is refused
                A client that sends every argument as a string sends
                the object as its JSON text, those characters in a
                string
@@ -9809,8 +9808,7 @@ Parameters:
      "         A link naming a heading writes its file: these
          settings are file-wide.
   setting - Which setting to write (string, required): TITLE, TODO,
-          ARCHIVE, CATEGORY, FILETAGS or STARTUP.  Case makes no
-          difference
+          ARCHIVE, CATEGORY, FILETAGS or STARTUP, in upper case
   before - Every line the file writes that setting on now (string
           or array, required), in the order it writes them - the
           array org-file-settings returns for it.  Read it from
@@ -10285,7 +10283,7 @@ Parameters:
   previous_sibling - Link to the child of parent the node is to
                      follow (string, optional), in any form link
                      takes, looked up in the parent's file.
-                     Left out, or null, false, \"\", [] or
+                     Left out, or \"\" or
                      whitespace, the node becomes the parent's last
                      child, or, at the top level, the file's first
                      heading
@@ -10327,7 +10325,7 @@ Parameters:
 "
      org-records-mcp--fields-description
      "  depth - How many generations of children to expand in place
-          (number, optional)
+          (integer, optional)
           Defaults to none, which returns the children as
           references.  Every generation a call expands carries the
           same fields as the node itself, and the properties and
@@ -10339,7 +10337,7 @@ Parameters:
           A read of more nodes than org-records-mcp-read-max-nodes is
           refused, naming the node the walk stopped at so that it
           can be read on its own; it is never trimmed to fit.
-          null, false, \"\" and [] ask for none.
+          0 asks for none, as leaving it out does.
   properties - Which Org drawer properties to return (array of
           strings, or a string, optional)
           Defaults to all: a read is the call that returns the
@@ -10367,7 +10365,7 @@ Parameters:
           searched as that tool searches it.  An ID none of the files
           holds is an error.  Refused with any link but an id:
           link, such as a file: link, which names its file already.
-          null, false, \"\" and [] mean no files.
+          \"\" and [] mean no files, as leaving it out does.
           A client that sends every argument as a string sends the
           array as its JSON text, the characters
           [\"/home/you/notes.org\"] in a string.
@@ -10671,21 +10669,21 @@ Parameters:
      org-records-mcp--heading-link-formats
      "  start_time - ISO 8601 start time (string, optional)
                Example: 2026-03-23T14:30:00
-               Left out, or null, false, \"\", [] or whitespace, uses
+               Left out, or \"\" or whitespace, uses
                the current time (or continuous time)
                Must not be before the running clock's start
-  resolve - true or \"true\" to delete the dangling (unclosed) CLOCK
-            lines the heading itself carries, before clocking in
-            (optional); one on a child of that heading is left alone,
-            and the running clock is closed, never deleted; false,
-            \"false\" and null mean not to; any other value is refused
+  resolve - true to delete the dangling (unclosed) CLOCK lines the
+            heading itself carries, before clocking in (boolean,
+            optional); one on a child of that heading is left alone,
+            and the running clock is closed, never deleted; false, or
+            leaving it out, means not to
   files - Files and directories to look up an id: link in (array of
           strings, optional); see org-node-read.  Not used for clock_out
   clock_out - Link to the heading of the running clock (string);
               required while a clock runs, refused while none does.
               The link a refusal names for it is accepted as sent;
               an id: link is looked up in the running clock's file.
-              Left out, or null, false, \"\", [] or whitespace, names
+              Left out, or \"\" or whitespace, names
               no clock to close
 
 Returns JSON object:
@@ -10735,7 +10733,7 @@ Parameters:
      org-records-mcp--heading-link-formats
      "  end_time - ISO 8601 end time (string, optional)
              Example: 2026-03-23T16:45:00
-             Left out, or null, false, \"\", [] or whitespace, uses
+             Left out, or \"\" or whitespace, uses
              the current time
   files - Files and directories to look up an id: link in
           (array of strings, optional); see org-node-read
@@ -10925,12 +10923,9 @@ Each element is a `mcp-server-lib-register-server' `:resources' spec,
     (end_time . text)
     (start . text)
     (end . text)
-    (before . text)
-    (after . text)
-    (files . paths)
+    (files . texts)
     (tags . texts)
     (fields . fields)
-    (properties . property-names)
     (computed . computed)
     (depth . count)
     (resolve . flag)
@@ -10942,9 +10937,11 @@ Each element is a `mcp-server-lib-register-server' `:resources' spec,
   "The JSON type each tool parameter is published with, by its name.
 Each entry is (PARAMETER . KIND), KIND one of the kinds
 `org-records-mcp--param-schema' turns into a JSON schema fragment.  A
-parameter means the same on every tool that takes it, except where
-`org-records-mcp--tool-param-types' names it for one tool: a `before'
-and an `after' are text unless the tool says otherwise.
+parameter here means the same on every tool that takes it.  `before',
+`after' and `properties' mean something different on different tools,
+so they are not here: each tool taking one names it in
+`org-records-mcp--tool-param-types', and a tool that does not is an
+error rather than a guess.
 
 Every parameter is declared, a plain string as much as an array, so
 a handler parameter named in neither table is an error when
@@ -10955,26 +10952,37 @@ JSON text of an array or an object, and the text null in a clearing
 `org-records-mcp--array-param'.")
 
 (defconst org-records-mcp--tool-param-types
-  '(("org-node-set-todo" (after . text-or-null))
-    ("org-node-set-scheduled" (after . text-or-null))
-    ("org-node-set-deadline" (after . text-or-null))
-    ("org-node-set-priority" (after . text-or-null))
+  '(("org-node-set-todo" (before . text) (after . text-or-null))
+    ("org-node-set-scheduled" (before . text) (after . text-or-null))
+    ("org-node-set-deadline" (before . text) (after . text-or-null))
+    ("org-node-set-priority" (before . text) (after . text-or-null))
+    ("org-node-set-title" (before . text) (after . text))
+    ("org-node-set-content" (before . text) (after . text))
     ("org-node-set-properties"
      (before . property-map)
      (after . property-map))
-    ("org-node-create" (properties . property-map))
     ("org-file-set-setting" (before . texts) (after . texts))
     ("org-node-add-tags" (after . texts))
     ("org-node-remove-tags" (after . texts))
-    ("org-node-set-tags" (before . texts) (after . texts)))
-  "The parameters one tool publishes with a type of its own.
+    ("org-node-set-tags" (before . texts) (after . texts))
+    ("org-node-delete" (before . text))
+    ("org-node-archive" (before . text))
+    ("org-node-refile" (before . text))
+    ("org-node-create" (properties . property-map))
+    ("org-node-read" (properties . property-names))
+    ("org-query" (properties . property-names))
+    ("org-view" (properties . property-names)))
+  "The parameters whose type depends on the tool taking them.
 Each entry is (TOOL (PARAMETER . KIND)...), TOOL a tool id and KIND
-as in `org-records-mcp--param-types', which these entries override for
-that tool alone.")
+as in `org-records-mcp--param-types'.  An entry here wins over one
+there.")
 
 (defun org-records-mcp--schema-enum (names)
-  "Return NAMES, symbols or strings, as the vector of a JSON `enum'."
-  (vconcat (mapcar (lambda (name) (format "%s" name)) names)))
+  "Return NAMES, symbols or strings, as the vector of a JSON `enum'.
+A name configured twice is listed once: the members of an `enum' are
+distinct, and the reader takes the first entry of the name anyway."
+  (vconcat
+   (delete-dups (mapcar (lambda (name) (format "%s" name)) names))))
 
 (defun org-records-mcp--schema-string (names)
   "Return the schema of a string that is one of NAMES.
@@ -11010,9 +11018,8 @@ as \"all\"; with none, the parameter takes the array alone."
 KIND is one of:
   text           a string
   text-or-null   a string, or null asking a field to hold nothing
-  texts          a string or an array of strings: one tag or line,
-                 or several
-  paths          an array of strings
+  texts          a string or an array of strings: one tag, line or
+                 path, or several
   count          a whole number, 0 or more
   flag           true or false
   fields         an array of node field names, or the name of a list
@@ -11020,9 +11027,10 @@ KIND is one of:
   property-names an array of property names, or \"all\" or \"none\"
   computed       an array of the names `org-records-mcp-computed-fields'
                  configures, or \"all\" or \"none\"
-  property-map   an object whose values are a string, a number, a
-                 boolean or null
-  planning-map   an object of the planning fields a call asserts
+  property-map   an object of one property or more, whose values are
+                 a string, a number, a boolean or null
+  planning-map   an object of the planning fields a call asserts,
+                 each holding a timestamp
   setting        one of `org-records-mcp--file-settings'
   view           one of the views `org-records-mcp-views' configures
   filter         one of the filters `org-records-mcp-filters' configures
@@ -11035,7 +11043,6 @@ registers it."
     ('text '((type . "string")))
     ('text-or-null '((type . ["string" "null"])))
     ('texts '((type . ["string" "array"]) (items (type . "string"))))
-    ('paths '((type . "array") (items (type . "string"))))
     ('count '((type . "integer") (minimum . 0)))
     ('flag '((type . "boolean")))
     ('fields
@@ -11049,6 +11056,7 @@ registers it."
       (mapcar #'car org-records-mcp-computed-fields) '("all" "none")))
     ('property-map
      '((type . "object")
+       (minProperties . 1)
        (additionalProperties
         (type . ["string" "number" "boolean" "null"]))))
     ('planning-map
@@ -11056,7 +11064,8 @@ registers it."
        (properties
         .
         ,(mapcar
-          (lambda (entry) (list (car entry) '(type . "string")))
+          (lambda (entry)
+            (list (car entry) '(type . "string") '(minLength . 1)))
           (org-records-mcp--planning-asserted)))
        (additionalProperties . :json-false)))
     ('setting

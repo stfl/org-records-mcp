@@ -43,8 +43,9 @@ A failing lint stage leaves `.lint-output.txt`; the test run always leaves
   link to each other; this file links out to them. A fact a human needs belongs
   in one of theirs.
 - **A new tool parameter is typed before it registers.** Declare it in
-  `org-records-mcp--param-types` (or per tool in
-  `org-records-mcp--tool-param-types`), plain strings included, and add it to
+  `org-records-mcp--param-types`, or for `before`, `after` and `properties`
+  per tool in `org-records-mcp--tool-param-types`, plain strings included, and
+  add it to
   `org-records-mcp-test--param-type-census`. Registration errors on an
   undeclared parameter and the census fails on an unlisted one.
   `CONTRIBUTING.org`, "What a parameter is published as", says why.

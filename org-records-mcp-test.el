@@ -3841,77 +3841,77 @@ each tool whose description lacks it."
 (defconst org-records-mcp-test--param-type-census
   '(("org-clock-active")
     ("org-clock-add"
-     ("end" . "string") ("files" . "array") ("link" . "string")
+     ("end" . "string") ("files" "array" "string") ("link" . "string")
      ("start" . "string"))
-    ("org-clock-dangling" ("files" . "array"))
+    ("org-clock-dangling" ("files" "array" "string"))
     ("org-clock-delete"
-     ("files" . "array") ("link" . "string") ("start" . "string"))
+     ("files" "array" "string") ("link" . "string") ("start" . "string"))
     ("org-clock-in"
-     ("clock_out" . "string") ("files" . "array") ("link" . "string")
+     ("clock_out" . "string") ("files" "array" "string") ("link" . "string")
      ("resolve" . "boolean") ("start_time" . "string"))
     ("org-clock-out"
-     ("end_time" . "string") ("files" . "array") ("link" . "string")
+     ("end_time" . "string") ("files" "array" "string") ("link" . "string")
      ("note" . "string"))
     ("org-config-allowed-files")
     ("org-config-clock")
     ("org-config-priority")
-    ("org-config-tag-candidates" ("files" . "array"))
+    ("org-config-tag-candidates" ("files" "array" "string"))
     ("org-config-tags")
-    ("org-config-todo" ("files" . "array") ("link" . "string"))
+    ("org-config-todo" ("files" "array" "string") ("link" . "string"))
     ("org-file-set-setting"
      ("after" "array" "string") ("before" "array" "string")
-     ("files" . "array") ("link" . "string") ("setting" . "string"))
-    ("org-file-settings" ("files" . "array") ("link" . "string"))
+     ("files" "array" "string") ("link" . "string") ("setting" . "string"))
+    ("org-file-settings" ("files" "array" "string") ("link" . "string"))
     ("org-node-add-note"
-     ("files" . "array") ("link" . "string") ("note" . "string"))
+     ("files" "array" "string") ("link" . "string") ("note" . "string"))
     ("org-node-add-tags"
-     ("after" "array" "string") ("files" . "array") ("link" . "string"))
+     ("after" "array" "string") ("files" "array" "string") ("link" . "string"))
     ("org-node-archive"
-     ("before" . "string") ("files" . "array") ("link" . "string"))
+     ("before" . "string") ("files" "array" "string") ("link" . "string"))
     ("org-node-create"
-     ("content" . "string") ("files" . "array") ("parent" . "string")
+     ("content" . "string") ("files" "array" "string") ("parent" . "string")
      ("previous_sibling" . "string") ("properties" . "object")
      ("tags" "array" "string") ("title" . "string") ("todo" . "string"))
     ("org-node-delete"
-     ("before" . "string") ("files" . "array") ("link" . "string"))
+     ("before" . "string") ("files" "array" "string") ("link" . "string"))
     ("org-node-read"
      ("computed" "array" "string") ("depth" . "integer")
-     ("fields" "array" "string") ("files" . "array") ("link" . "string")
+     ("fields" "array" "string") ("files" "array" "string") ("link" . "string")
      ("properties" "array" "string"))
     ("org-node-refile"
-     ("before" . "string") ("files" . "array") ("link" . "string")
+     ("before" . "string") ("files" "array" "string") ("link" . "string")
      ("parent" . "string") ("previous_sibling" . "string"))
     ("org-node-remove-tags"
-     ("after" "array" "string") ("files" . "array") ("link" . "string"))
+     ("after" "array" "string") ("files" "array" "string") ("link" . "string"))
     ("org-node-set-content"
-     ("after" . "string") ("before" . "string") ("files" . "array")
+     ("after" . "string") ("before" . "string") ("files" "array" "string")
      ("link" . "string"))
     ("org-node-set-deadline"
-     ("after" "null" "string") ("before" . "string") ("files" . "array")
+     ("after" "null" "string") ("before" . "string") ("files" "array" "string")
      ("link" . "string"))
     ("org-node-set-priority"
-     ("after" "null" "string") ("before" . "string") ("files" . "array")
+     ("after" "null" "string") ("before" . "string") ("files" "array" "string")
      ("link" . "string"))
     ("org-node-set-properties"
-     ("after" . "object") ("before" . "object") ("files" . "array")
+     ("after" . "object") ("before" . "object") ("files" "array" "string")
      ("link" . "string"))
     ("org-node-set-scheduled"
-     ("after" "null" "string") ("before" . "string") ("files" . "array")
+     ("after" "null" "string") ("before" . "string") ("files" "array" "string")
      ("link" . "string"))
     ("org-node-set-tags"
      ("after" "array" "string") ("before" "array" "string")
-     ("files" . "array") ("link" . "string"))
+     ("files" "array" "string") ("link" . "string"))
     ("org-node-set-title"
-     ("after" . "string") ("before" . "string") ("files" . "array")
+     ("after" . "string") ("before" . "string") ("files" "array" "string")
      ("link" . "string"))
     ("org-node-set-todo"
      ("after" "null" "string") ("before" . "string")
-     ("before_planning" . "object") ("files" . "array")
+     ("before_planning" . "object") ("files" "array" "string")
      ("link" . "string") ("note" . "string"))
-    ("org-node-text" ("files" . "array") ("link" . "string"))
+    ("org-node-text" ("files" "array" "string") ("link" . "string"))
     ("org-query"
      ("computed" "array" "string") ("fields" "array" "string")
-     ("files" . "array") ("properties" "array" "string")
+     ("files" "array" "string") ("properties" "array" "string")
      ("query" . "string"))
     ("org-view"
      ("computed" "array" "string") ("fields" "array" "string")
@@ -3989,14 +3989,20 @@ Every tool is then registered, org-view among them, and every kind
 of configured name has names to list."
   (declare (indent defun) (debug t))
   `(let ((org-records-mcp-views
-          '((inbox :query (todo "TODO"))
-            (next :query (todo "NEXT") :filter t :range (sprint all))
-            (later :query (todo "TODO") :range (all someday))))
+          (copy-tree org-records-mcp-test--typed-views))
          (org-records-mcp-filters '((work . (tags "work"))))
          (org-records-mcp-computed-fields '((rank . ignore)))
          (org-records-mcp-node-field-lists '((reference link))))
      (org-records-mcp-test--with-enabled
        ,@body)))
+
+(defconst org-records-mcp-test--typed-views
+  '((inbox :query (todo "TODO"))
+    (next :query (todo "NEXT") :filter t :range (sprint all))
+    (later :query (todo "TODO") :range (all someday))
+    (soon :query (todo "TODO") :range upcoming))
+  "The views the parameter-type tests register.
+Their ranges overlap, and one is declared as a bare symbol.")
 
 (ert-deftest org-records-mcp-test-every-parameter-publishes-its-type ()
   "Every parameter of every tool publishes the JSON type it takes.
@@ -4061,10 +4067,15 @@ way."
              (org-records-mcp-test--published-enum
               (org-records-mcp-test--published-param "org-view" parameter)
               "string"))))
-      (should (equal (funcall view 'view) '("inbox" "next" "later")))
+      (should
+       (equal (funcall view 'view) '("inbox" "next" "later" "soon")))
       (should (equal (funcall view 'filter) '("work")))
       (should
-       (equal (funcall view 'range) '("sprint" "all" "someday"))))
+       (equal
+        (funcall view 'range) '("sprint" "all" "someday" "upcoming")))
+      (ert-info ("collecting the names leaves the views as configured")
+        (should
+         (equal org-records-mcp-views org-records-mcp-test--typed-views))))
     (dolist (tool '("org-node-read" "org-query" "org-view"))
       (let ((fields (org-records-mcp-test--published-param tool 'fields))
             (computed
@@ -4139,7 +4150,13 @@ writes is one of the settings the tool covers."
           'additionalProperties
           (org-records-mcp-test--published-param
            (car place) (cdr place))))
-        '("boolean" "null" "number" "string"))))
+        '("boolean" "null" "number" "string")))
+      (should
+       (equal
+        (alist-get
+         'minProperties
+         (org-records-mcp-test--published-param (car place) (cdr place)))
+        1)))
     (let ((planning
            (org-records-mcp-test--published-param
             "org-node-set-todo" 'before_planning)))
@@ -4149,10 +4166,10 @@ writes is one of the settings the tool covers."
         '(scheduled deadline)))
       (should
        (equal
-        (mapcar
-         (lambda (entry) (alist-get 'type (cdr entry)))
-         (alist-get 'properties planning))
-        '("string" "string")))
+        (mapcar (lambda (entry) (cdr entry))
+                (alist-get 'properties planning))
+        '(((type . "string") (minLength . 1))
+          ((type . "string") (minLength . 1)))))
       (should (eq (alist-get 'additionalProperties planning) :json-false)))
     (should
      (equal
@@ -4175,12 +4192,92 @@ A parameter left out of `org-records-mcp--param-types' would otherwise
 reach the client as the string `mcp-server-lib' publishes by default,
 which is how every array, object and null came to be published as a
 string."
-  (should-error
-   (org-records-mcp--typed-tool-spec
-    (list
-     #'org-records-mcp-test--undeclared-parameter-tool
-     :id "org-mystery"
-     :description "A tool for the test."))))
+  (should
+   (string-match-p
+    "org-mystery takes mystery"
+    (error-message-string
+     (should-error
+      (org-records-mcp--typed-tool-spec
+       (list
+        #'org-records-mcp-test--undeclared-parameter-tool
+        :id "org-mystery"
+        :description "A tool for the test.")))))))
+
+(defun org-records-mcp-test--before-after-tool (before after)
+  "Return BEFORE and AFTER, as a tool no table names.
+
+MCP Parameters:
+  before - What the field holds
+  after - What it is to hold"
+  (list before after))
+
+(ert-deftest org-records-mcp-test-before-and-after-are-typed-per-tool ()
+  "A `before' or an `after' is typed by its tool, never by its name.
+The two mean a string on one tool, an array on another and an object
+on a third, so a tool the per-tool table does not name fails to
+register rather than inherit a type meant for another."
+  (should
+   (string-match-p
+    "org-new-setter takes before"
+    (error-message-string
+     (should-error
+      (org-records-mcp--typed-tool-spec
+       (list
+        #'org-records-mcp-test--before-after-tool
+        :id "org-new-setter"
+        :description "A tool for the test.")))))))
+
+(ert-deftest org-records-mcp-test-every-enum-member-passes-its-reader ()
+  "Every name a schema lists is one the parameter's reader accepts.
+The schema and the reader are two statements of one vocabulary, and a
+client that follows the schema sends only its names, so a name the
+reader refuses is a call the schema promised and the server breaks."
+  (org-records-mcp-test--with-typed-config
+    (let ((fields
+           (org-records-mcp-test--published-param "org-node-read" 'fields))
+          (enum
+           (lambda (tool parameter)
+             (org-records-mcp-test--published-enum
+              (org-records-mcp-test--published-param tool parameter)
+              "string"))))
+      (dolist (name (org-records-mcp-test--published-item-enum fields))
+        (should (org-records-mcp--node-field name)))
+      (dolist (name (org-records-mcp-test--published-enum fields "string"))
+        (should (org-records-mcp--named-node-fields name)))
+      (dolist (name
+               (org-records-mcp-test--published-item-enum
+                (org-records-mcp-test--published-param
+                 "org-node-read" 'computed)))
+        (should (org-records-mcp--computed-field name)))
+      (dolist (name (funcall enum "org-file-set-setting" 'setting))
+        (should (equal (org-records-mcp--setting-given name) name)))
+      (dolist (name (funcall enum "org-view" 'view))
+        (should (org-records-mcp--view name)))
+      (dolist (name (funcall enum "org-view" 'filter))
+        (should (org-records-mcp--filter-query name)))
+      (let ((ranges
+             (mapcan
+              (lambda (entry)
+                (mapcar
+                 #'symbol-name
+                 (org-records-mcp--view-ranges (cdr entry))))
+              org-records-mcp-views)))
+        (dolist (name (funcall enum "org-view" 'range))
+          (should (member name ranges)))))))
+
+(ert-deftest org-records-mcp-test-enum-lists-a-name-configured-twice-once ()
+  "A name configured twice is one member of the schema's `enum'.
+Members of an `enum' are distinct, and the reader answers with the
+first entry of the name anyway."
+  (let ((org-records-mcp-views
+         '((inbox :query (todo "TODO")) (inbox :query (todo "NEXT")))))
+    (org-records-mcp-test--with-enabled
+      (should
+       (equal
+        (org-records-mcp-test--published-enum
+         (org-records-mcp-test--published-param "org-view" 'view)
+         "string")
+        '("inbox"))))))
 
 (ert-deftest org-records-mcp-test-file-resource-read ()
   "Test that reading org:// resource returns structured JSON."

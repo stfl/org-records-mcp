@@ -1468,7 +1468,7 @@ moves that file's =content_digest= and =digest= although the call names no body
 - *Description:* Write one of a file's in-buffer settings
 - *Parameters:*
   - =link= (string, required): link to the file, or to a heading in it (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]). A link naming a heading writes the heading's file: these settings are file-wide
-  - =setting= (string, required): which setting to write — =TITLE=, =TODO=, =ARCHIVE=, =CATEGORY=, =FILETAGS= or =STARTUP=. Case makes no difference, and any other name is refused
+  - =setting= (string, required): which setting to write — =TITLE=, =TODO=, =ARCHIVE=, =CATEGORY=, =FILETAGS= or =STARTUP=, in upper case as the schema lists them; any other name is refused
   - =before= (string or array, required): every line the file writes that setting on now, in the order it writes them — the array [[file:reading.org::*org-file-settings][org-file-settings]] returns for it. =[]= asserts that the file writes it on no line
   - =after= (string or array, required): the lines to write. =[]= leaves the file writing none
   - =files= (array of strings, optional): Files and directories to look up an =id:= link in, instead of the ID index; see [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]
