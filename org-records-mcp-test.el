@@ -1115,7 +1115,7 @@ setup outside requests may still create IDs."
          (prog1 (mcp-server-lib-ert-with-server
                   :tools t
                   :resources t
-                  :version "0.10.1"
+                  :version "0.11.0"
                   ,@body)
            (should-not org-records-mcp-test--created-ids))
        (org-records-mcp-disable)
