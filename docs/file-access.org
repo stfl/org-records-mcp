@@ -174,12 +174,19 @@ never the file, and a remote file the index names is refused before TRAMP can
 open a connection for it.  So when =org-records-mcp-file-scope-override= is
 =t=, or lists the directory your notes live in, an =id:= link from an agenda
 file into a note outside the agenda resolves with no =files= on the call,
-while the views keep to the allowed files.
+while the views keep to the allowed files.  Where the index holds an ID in two
+files, such as a heading and its copy in an =.org_archive= file, or a note
+duplicated under another name, the call reaches the file the index names, the
+one =org-id-goto= opens.
 
 An ID in a file Emacs has not indexed is not found through the index, and
 looking up an ID the index lacks makes org-records-mcp rescan the index, as Org
-does, reading every file Org knows, which can freeze Emacs for seconds.  The
-file the rescan finds is checked like the one the index named first.
+does, which can freeze Emacs for seconds.  The rescan is Org's own: it reads
+every file Org knows of, whatever the setting — the agenda files, the files in
+=org-id-extra-files=, every file the index already lists and every Org file
+you have open — and a remote file among them is opened through TRAMP.  The
+file the rescan names is then checked like the one the index named first.  A
+lookup whose first answer the setting refuses ends there, with no rescan.
 
 Every tool that names a heading takes a =files= parameter for this: an array
 of absolute paths to Org files and directories.  With it, the ID of an =id:=

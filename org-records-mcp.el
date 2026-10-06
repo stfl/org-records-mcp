@@ -3099,20 +3099,26 @@ may not reach."
   "Return the file that holds ID, which LINK names, when the call may reach it.
 Emacs's ID index names the file, through `org-id-find-id-file', which
 only reads the index.  That file must pass the scope gate,
-`org-records-mcp--find-allowed-file', before anything reads it, and
-it passes as a file the call names: the index names it on the call's
-behalf, so `org-records-mcp-file-scope-override' reaches it as it
-reaches the file of a `file:' link.  A file neither allowed nor
-permitted by the override is refused unread, and a remote one, or a
-symlink to one, is refused before TRAMP can open a connection for
-it.  Only then is the file searched for ID, with
-`org-id-find-id-in-file', which reads the buffer visiting it, or else
-its contents into a temporary buffer.
+`org-records-mcp--find-allowed-file', before this function reads it,
+and it passes as a file the call names: the index names it on the
+call's behalf, so `org-records-mcp-file-scope-override' reaches it as
+it reaches the file of a `file:' link.  A file the index names that
+is neither allowed nor permitted by the override is refused without
+being read, and a remote one, or a symlink to one, before TRAMP can
+open a connection for it.  Only then is the file searched for ID,
+with `org-id-find-id-in-file', which reads the buffer visiting it, or
+else its contents into a temporary buffer.
 
 When the index lacks ID, or the file it names does not hold it, the
 index is rescanned once with `org-id-update-id-locations', as
 `org-id-find' does on a miss, and the file it then names goes through
-the gate in turn; the caller finds ID in that file's buffer.
+the gate in turn; the caller finds ID in that file's buffer.  The
+rescan is Org's and reads every file Org knows of, whatever the
+scope: the agenda files and their archives, `org-id-extra-files', the
+files of `org-id-files' and every Org file a buffer visits.  It
+resolves each with `file-truename', so a remote file among them is
+handed to TRAMP.  A first answer the gate refuses ends the lookup
+there, with no rescan.
 `org-id-find' is not called itself: it reads the file the index names
 before any gate could refuse it, and so asks TRAMP about a remote one.
 

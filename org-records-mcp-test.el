@@ -3024,6 +3024,33 @@ as it was."
               org-records-mcp-test--scope-id-link)
              file)))))))
 
+(ert-deftest org-records-mcp-test-scope-override-id-in-two-files-reaches-the-indexed-one ()
+  "An ID held by two files resolves in the one the index names.
+Under t, the heading and its copy in an `.org_archive' file carry the
+same ID.  Whichever of the two the index names is the one a read by
+the `id:' link returns, as `org-id-goto' would open it."
+  (org-records-mcp-test--with-scope-dirs t
+    (let* ((note (org-records-mcp-test--write-file
+                  outside "note.org"
+                  org-records-mcp-test--scope-task-with-id-content))
+           (copy-content
+            (replace-regexp-in-string
+             "^Body$" "Archived copy"
+             org-records-mcp-test--scope-task-with-id-content))
+           (copy (org-records-mcp-test--write-file
+                  outside "note.org_archive" copy-content)))
+      (pcase-dolist (`(,indexed . ,content)
+                     `((,note . ,org-records-mcp-test--scope-task-with-id-content)
+                       (,copy . ,copy-content)))
+        (org-records-mcp-test--with-id-tracking
+            (list allowed)
+            `((,org-records-mcp-test--content-with-id-id . ,indexed))
+          (should
+           (string=
+            (org-records-mcp-test--call-read-headline
+             org-records-mcp-test--scope-id-link)
+            (string-trim-right content))))))))
+
 (ert-deftest org-records-mcp-test-allowed-files-directory-entry-does-not-widen ()
   "A directory among the allowed files makes no file under it reachable."
   (org-records-mcp-test--with-scope-dirs nil

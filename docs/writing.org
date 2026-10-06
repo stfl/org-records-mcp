@@ -2215,9 +2215,11 @@ Tags are aligned: the node and every heading under it arrive with their tags at
 heading and that is what aligns them.
 
 A refile into another file writes both files, and both have to be within reach —
-the destination is checked like any file a call names, so a refile is no way to
-write outside the allowed files (see [[file:file-access.org::*Configuring allowed files][Configuring allowed files]]). A refused
-refile writes neither.
+the destination is checked like any file a call names, whether =parent= is a
+=file:= or an =id:= link, so a refile is no way to write outside the files the
+call may reach: the allowed files and what =org-records-mcp-file-scope-override=
+permits (see [[file:file-access.org::*Configuring the scope override][Configuring the scope override]]). A refused refile writes
+neither.
 
 Example:
 #+begin_src json

@@ -29,9 +29,11 @@ link a client finds in a body is the next call's =link=:
   the index names must be one the call may reach, an allowed file or one
   =org-records-mcp-file-scope-override= permits, before org-records-mcp reads
   it, so an index entry for a remote file, or for a file the call may not
-  reach, is refused without touching that file. When the index lacks the ID,
-  or names a file that does not hold it,
-  org-records-mcp rescans the index once, as =org-id-find= does. For the part after
+  reach, is refused without org-records-mcp reading that file. When the index
+  lacks the ID, or names a file that does not hold it, org-records-mcp rescans
+  the index once, as =org-id-find= does, and checks the file the rescan names
+  the same way; the rescan itself is Org's and reads every file Org knows of
+  (see [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]). For the part after
   =::=, it is =org-link-search=. The search part of an =id:= link, as in
   =id:<id>::*Review=, runs within that heading's subtree; a =file:= link
   searches the whole file. A title that matches several headings resolves to
