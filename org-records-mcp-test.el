@@ -3836,6 +3836,352 @@ each tool whose description lacks it."
         (org-records-mcp-test--registered-tool-ids)
         org-records-mcp-test--unconditional-tool-ids)))))
 
+;;; Parameter types
+
+(defconst org-records-mcp-test--param-type-census
+  '(("org-clock-active")
+    ("org-clock-add"
+     ("end" . "string") ("files" . "array") ("link" . "string")
+     ("start" . "string"))
+    ("org-clock-dangling" ("files" . "array"))
+    ("org-clock-delete"
+     ("files" . "array") ("link" . "string") ("start" . "string"))
+    ("org-clock-in"
+     ("clock_out" . "string") ("files" . "array") ("link" . "string")
+     ("resolve" . "boolean") ("start_time" . "string"))
+    ("org-clock-out"
+     ("end_time" . "string") ("files" . "array") ("link" . "string")
+     ("note" . "string"))
+    ("org-config-allowed-files")
+    ("org-config-clock")
+    ("org-config-priority")
+    ("org-config-tag-candidates" ("files" . "array"))
+    ("org-config-tags")
+    ("org-config-todo" ("files" . "array") ("link" . "string"))
+    ("org-file-set-setting"
+     ("after" "array" "string") ("before" "array" "string")
+     ("files" . "array") ("link" . "string") ("setting" . "string"))
+    ("org-file-settings" ("files" . "array") ("link" . "string"))
+    ("org-node-add-note"
+     ("files" . "array") ("link" . "string") ("note" . "string"))
+    ("org-node-add-tags"
+     ("after" "array" "string") ("files" . "array") ("link" . "string"))
+    ("org-node-archive"
+     ("before" . "string") ("files" . "array") ("link" . "string"))
+    ("org-node-create"
+     ("content" . "string") ("files" . "array") ("parent" . "string")
+     ("previous_sibling" . "string") ("properties" . "object")
+     ("tags" "array" "string") ("title" . "string") ("todo" . "string"))
+    ("org-node-delete"
+     ("before" . "string") ("files" . "array") ("link" . "string"))
+    ("org-node-read"
+     ("computed" "array" "string") ("depth" . "integer")
+     ("fields" "array" "string") ("files" . "array") ("link" . "string")
+     ("properties" "array" "string"))
+    ("org-node-refile"
+     ("before" . "string") ("files" . "array") ("link" . "string")
+     ("parent" . "string") ("previous_sibling" . "string"))
+    ("org-node-remove-tags"
+     ("after" "array" "string") ("files" . "array") ("link" . "string"))
+    ("org-node-set-content"
+     ("after" . "string") ("before" . "string") ("files" . "array")
+     ("link" . "string"))
+    ("org-node-set-deadline"
+     ("after" "null" "string") ("before" . "string") ("files" . "array")
+     ("link" . "string"))
+    ("org-node-set-priority"
+     ("after" "null" "string") ("before" . "string") ("files" . "array")
+     ("link" . "string"))
+    ("org-node-set-properties"
+     ("after" . "object") ("before" . "object") ("files" . "array")
+     ("link" . "string"))
+    ("org-node-set-scheduled"
+     ("after" "null" "string") ("before" . "string") ("files" . "array")
+     ("link" . "string"))
+    ("org-node-set-tags"
+     ("after" "array" "string") ("before" "array" "string")
+     ("files" . "array") ("link" . "string"))
+    ("org-node-set-title"
+     ("after" . "string") ("before" . "string") ("files" . "array")
+     ("link" . "string"))
+    ("org-node-set-todo"
+     ("after" "null" "string") ("before" . "string")
+     ("before_planning" . "object") ("files" . "array")
+     ("link" . "string") ("note" . "string"))
+    ("org-node-text" ("files" . "array") ("link" . "string"))
+    ("org-query"
+     ("computed" "array" "string") ("fields" "array" "string")
+     ("files" . "array") ("properties" "array" "string")
+     ("query" . "string"))
+    ("org-view"
+     ("computed" "array" "string") ("fields" "array" "string")
+     ("filter" . "string") ("properties" "array" "string")
+     ("range" . "string") ("view" . "string")))
+  "Every tool, and the JSON type it publishes each parameter with.
+Each entry is (TOOL (PARAMETER . TYPE)...), sorted by name.  TYPE is
+a type name, or a sorted list of the names a parameter taking any of
+several types admits.  It is written out from what each parameter
+takes rather than derived from `org-records-mcp--param-types', so the
+test holds the published schema against a second statement of it.")
+
+(defun org-records-mcp-test--schema-branches (fragment)
+  "Return FRAGMENT's `anyOf' branches, or FRAGMENT alone without one."
+  (if-let* ((branches (alist-get 'anyOf fragment)))
+    (append branches nil)
+    (list fragment)))
+
+(defun org-records-mcp-test--type-names (branch)
+  "Return the type names the schema BRANCH spells, as a list."
+  (let ((type (alist-get 'type branch)))
+    (if (vectorp type)
+        (append type nil)
+      (list type))))
+
+(defun org-records-mcp-test--schema-types (fragment)
+  "Return the JSON types the schema FRAGMENT admits.
+A single type is its name; several are a sorted list of names,
+whether FRAGMENT spells them as one `type' array or as `anyOf'."
+  (let ((types
+         (sort
+          (seq-uniq
+           (mapcan
+            #'org-records-mcp-test--type-names
+            (org-records-mcp-test--schema-branches fragment)))
+          #'string<)))
+    (if (cdr types)
+        types
+      (car types))))
+
+(defun org-records-mcp-test--published-param (tool parameter)
+  "Return the schema fragment TOOL publishes for PARAMETER, a symbol."
+  (alist-get
+   parameter
+   (alist-get
+    'properties
+    (alist-get 'inputSchema (org-records-mcp-test--registered-tool tool)))))
+
+(defun org-records-mcp-test--published-branch (fragment type)
+  "Return the branch of FRAGMENT whose type is TYPE, a type name."
+  (cl-find
+   type (org-records-mcp-test--schema-branches fragment)
+   :key (lambda (branch) (alist-get 'type branch))
+   :test #'equal))
+
+(defun org-records-mcp-test--published-enum (fragment type)
+  "Return the `enum' of FRAGMENT's TYPE branch as a list, nil without one."
+  (append
+   (alist-get
+    'enum (org-records-mcp-test--published-branch fragment type))
+   nil))
+
+(defun org-records-mcp-test--published-item-enum (fragment)
+  "Return the `enum' of what FRAGMENT's array holds, nil without one."
+  (append
+   (alist-get
+    'enum
+    (alist-get
+     'items (org-records-mcp-test--published-branch fragment "array")))
+   nil))
+
+(defmacro org-records-mcp-test--with-typed-config (&rest body)
+  "Run BODY enabled, with views, a filter, ranges and a computed field.
+Every tool is then registered, org-view among them, and every kind
+of configured name has names to list."
+  (declare (indent defun) (debug t))
+  `(let ((org-records-mcp-views
+          '((inbox :query (todo "TODO"))
+            (next :query (todo "NEXT") :filter t :range (sprint all))
+            (later :query (todo "TODO") :range (all someday))))
+         (org-records-mcp-filters '((work . (tags "work"))))
+         (org-records-mcp-computed-fields '((rank . ignore)))
+         (org-records-mcp-node-field-lists '((reference link))))
+     (org-records-mcp-test--with-enabled
+       ,@body)))
+
+(ert-deftest org-records-mcp-test-every-parameter-publishes-its-type ()
+  "Every parameter of every tool publishes the JSON type it takes.
+The census runs over tools/list rather than over the type table: a
+tool, or a parameter, the census does not list fails the test until
+someone states what it takes, and so does a parameter published with
+any other type, a plain string among them."
+  (org-records-mcp-test--with-typed-config
+    (should
+     (equal
+      (org-records-mcp-test--registered-tool-ids)
+      (mapcar #'car org-records-mcp-test--param-type-census)))
+    (dolist (tool (org-records-mcp-test--registered-tools))
+      (let ((name (alist-get 'name tool)))
+        (should
+         (equal
+          (cons
+           name
+           (sort
+            (mapcar
+             (lambda (parameter)
+               (cons
+                (symbol-name (car parameter))
+                (org-records-mcp-test--schema-types (cdr parameter))))
+             (alist-get 'properties (alist-get 'inputSchema tool)))
+            (lambda (a b) (string< (car a) (car b)))))
+          (assoc name org-records-mcp-test--param-type-census)))))))
+
+(ert-deftest org-records-mcp-test-every-array-parameter-holds-strings ()
+  "Every parameter taking an array publishes that the array holds strings.
+A client builds the array from the schema, so an array whose members
+are left untyped is one it may fill with numbers or objects that
+every reader refuses."
+  (org-records-mcp-test--with-typed-config
+    (dolist (tool (org-records-mcp-test--registered-tools))
+      (dolist (parameter
+               (alist-get 'properties (alist-get 'inputSchema tool)))
+        (dolist (branch
+                 (org-records-mcp-test--schema-branches (cdr parameter)))
+          (when (member
+                 "array" (org-records-mcp-test--type-names branch))
+            (should
+             (equal
+              (list (alist-get 'name tool) (car parameter) "string")
+              (list
+               (alist-get 'name tool)
+               (car parameter)
+               (alist-get 'type (alist-get 'items branch)))))))))))
+
+(ert-deftest org-records-mcp-test-configured-names-publish-as-enums ()
+  "A parameter taking a configured name lists the names configured.
+The view, filter and range of org-view, and the computed fields and
+field lists of a read, a query and a view, each publish an `enum' of
+the names configured when the tools were registered.  A range is
+every range any view takes, each once, and the array of field names
+holds the node's fields.  The two group names a computed and a
+properties parameter take in place of an array are published the same
+way."
+  (org-records-mcp-test--with-typed-config
+    (let ((view
+           (lambda (parameter)
+             (org-records-mcp-test--published-enum
+              (org-records-mcp-test--published-param "org-view" parameter)
+              "string"))))
+      (should (equal (funcall view 'view) '("inbox" "next" "later")))
+      (should (equal (funcall view 'filter) '("work")))
+      (should
+       (equal (funcall view 'range) '("sprint" "all" "someday"))))
+    (dolist (tool '("org-node-read" "org-query" "org-view"))
+      (let ((fields (org-records-mcp-test--published-param tool 'fields))
+            (computed
+             (org-records-mcp-test--published-param tool 'computed))
+            (properties
+             (org-records-mcp-test--published-param tool 'properties)))
+        (should
+         (equal
+          (org-records-mcp-test--published-enum fields "string")
+          '("reference")))
+        (should
+         (equal
+          (org-records-mcp-test--published-item-enum fields)
+          (mapcar #'symbol-name org-records-mcp--node-fields)))
+        (should
+         (equal
+          (org-records-mcp-test--published-item-enum computed)
+          '("rank")))
+        (should-not
+         (org-records-mcp-test--published-item-enum properties))
+        (dolist (group (list computed properties))
+          (should
+           (equal
+            (org-records-mcp-test--published-enum group "string")
+            '("all" "none"))))))))
+
+(ert-deftest org-records-mcp-test-unconfigured-names-publish-as-plain-types ()
+  "A kind of name nothing configures publishes no `enum' to choose from.
+With no filter, no range, no computed field and no field list
+configured, a filter and a range are any string, a computed field
+any string, and fields an array alone: an empty set is nothing a
+client can be told to pick from, and the call's own refusal names
+what there is."
+  (let ((org-records-mcp-views '((inbox :query (todo "TODO"))))
+        (org-records-mcp-filters nil)
+        (org-records-mcp-computed-fields nil)
+        (org-records-mcp-node-field-lists nil))
+    (org-records-mcp-test--with-enabled
+      (dolist (parameter '(filter range))
+        (let ((fragment
+               (org-records-mcp-test--published-param
+                "org-view" parameter)))
+          (should (equal (alist-get 'type fragment) "string"))
+          (should-not (assq 'enum fragment))))
+      (should
+       (equal
+        (org-records-mcp-test--schema-types
+         (org-records-mcp-test--published-param
+          "org-node-read" 'fields))
+        "array"))
+      (should-not
+       (org-records-mcp-test--published-item-enum
+        (org-records-mcp-test--published-param
+         "org-node-read" 'computed))))))
+
+(ert-deftest org-records-mcp-test-object-parameters-publish-their-members ()
+  "An object parameter publishes what its members take.
+A property map's values are what a drawer line is written from or
+asserted as: a string, a number, a boolean or null.  A planning
+assertion names exactly the planning fields a call asserts and admits
+no other key, as the server refuses any other.  The setting a file
+writes is one of the settings the tool covers."
+  (org-records-mcp-test--with-typed-config
+    (dolist (place
+             '(("org-node-set-properties" . before)
+               ("org-node-set-properties" . after)
+               ("org-node-create" . properties)))
+      (should
+       (equal
+        (org-records-mcp-test--schema-types
+         (alist-get
+          'additionalProperties
+          (org-records-mcp-test--published-param
+           (car place) (cdr place))))
+        '("boolean" "null" "number" "string"))))
+    (let ((planning
+           (org-records-mcp-test--published-param
+            "org-node-set-todo" 'before_planning)))
+      (should
+       (equal
+        (mapcar #'car (alist-get 'properties planning))
+        '(scheduled deadline)))
+      (should
+       (equal
+        (mapcar
+         (lambda (entry) (alist-get 'type (cdr entry)))
+         (alist-get 'properties planning))
+        '("string" "string")))
+      (should (eq (alist-get 'additionalProperties planning) :json-false)))
+    (should
+     (equal
+      (org-records-mcp-test--published-enum
+       (org-records-mcp-test--published-param
+        "org-file-set-setting" 'setting)
+       "string")
+      org-records-mcp--file-settings))))
+
+(defun org-records-mcp-test--undeclared-parameter-tool (mystery)
+  "Return MYSTERY, as a tool whose parameter no table types.
+
+MCP Parameters:
+  mystery - A parameter nobody declared"
+  mystery)
+
+(ert-deftest org-records-mcp-test-undeclared-parameter-is-an-error ()
+  "A tool taking a parameter no table types fails to register.
+A parameter left out of `org-records-mcp--param-types' would otherwise
+reach the client as the string `mcp-server-lib' publishes by default,
+which is how every array, object and null came to be published as a
+string."
+  (should-error
+   (org-records-mcp--typed-tool-spec
+    (list
+     #'org-records-mcp-test--undeclared-parameter-tool
+     :id "org-mystery"
+     :description "A tool for the test."))))
+
 (ert-deftest org-records-mcp-test-file-resource-read ()
   "Test that reading org:// resource returns structured JSON."
   (let ((test-content "* Test Heading\nThis is test content."))
@@ -24821,9 +25167,9 @@ org://{link} resource is the same read."
 
 ;;; An array from a client that cannot send one
 
-;; The tool schema types every parameter as a string, so a client that
-;; validates its arguments against it cannot send a JSON array at all:
-;; it sends the array as its own JSON text instead.  Every parameter
+;; A client that sends every argument as a string cannot send a JSON
+;; array at all, whatever the tool schema says: it sends the array as
+;; its own JSON text instead.  Every parameter
 ;; documented as taking an array reads that text back as the array,
 ;; and each string form the parameter already offers goes on meaning
 ;; what it meant.
@@ -25796,8 +26142,8 @@ off, so each node carries the fields asked for and nothing else."
 
 (ert-deftest org-records-mcp-test-depth-none-returns-references ()
   "A read asking for no depth carries its children as references.
-Sending no `depth', sending zero, sending the string a client
-following the tool schema sends and sending the blank an optional
+Sending no `depth', sending zero, sending the string a client that
+sends every argument as a string sends and sending the blank an optional
 parameter is filled with are one call: a walk that expands nothing
 ends where it starts, and each child is the address of the read that
 opens it."

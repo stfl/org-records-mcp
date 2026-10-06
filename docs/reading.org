@@ -261,7 +261,9 @@ A call then asks for =fields: "planning"=.
 A field name that is not a field, and a list name that is not configured, are
 both refused, and the refusal names the valid ones. Leaving an unknown name out
 silently would hand back a node missing the field the call asked for with
-nothing to say why.
+nothing to say why. The schema of =fields= lists both sets, the list names as
+configured when =org-records-mcp-enable= registers the tools (see
+[[file:installation.org::*The types the tool schema publishes][The types the tool schema publishes]]).
 
 ** Asking for properties
 
@@ -416,7 +418,9 @@ it:
 
 A function that answers with nothing leaves its field out, as an empty field
 is left out. A name nobody configured is refused, and the refusal names the
-ones that are.
+ones that are. The schema of =computed= lists the names configured when
+=org-records-mcp-enable= registers the tools (see
+[[file:installation.org::*The types the tool schema publishes][The types the tool schema publishes]]).
 
 | A node from                 | Carries unasked                                        |
 |-----------------------------+--------------------------------------------------------|
@@ -632,7 +636,7 @@ tool-only variant with no resource counterpart.
     - =id:<id>=, =file:/path/to/file.org::#<custom-id>= or =file:/path/to/file.org::*<title>= - heading
     - =file:/path/to/file.org=, or =id:<id>= of its file-level property drawer - file (returns file with children)
   - =fields= (array of strings, or a string, optional): how much of the node to return; an array of field names, or the name of a configured list. See [[*Asking for fields][Asking for fields]]
-  - =depth= (number, optional): how many generations of children to expand in place; none by default. See [[*Reading a subtree][Reading a subtree]]
+  - =depth= (integer, optional): how many generations of children to expand in place; none by default. See [[*Reading a subtree][Reading a subtree]]
   - =properties= (array of strings, or a string, optional): which Org drawer properties to return; an array of property names, or ="all"= or ="none"=. Defaults to all. See [[*Asking for properties][Asking for properties]]
   - =computed= (array of strings, or a string, optional): which computed fields to return; an array of names, or ="all"= or ="none"=. Defaults to all. See [[*Asking for computed fields][Asking for computed fields]]
   - =files= (array of strings, optional): Files and directories to look up an =id:= link in, instead of the ID index; see [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]

@@ -42,6 +42,12 @@ A failing lint stage leaves `.lint-output.txt`; the test run always leaves
   and never into `.claude/`. `README.org`, `CONTRIBUTING.org` and `docs/*.org`
   link to each other; this file links out to them. A fact a human needs belongs
   in one of theirs.
+- **A new tool parameter is typed before it registers.** Declare it in
+  `org-records-mcp--param-types` (or per tool in
+  `org-records-mcp--tool-param-types`), plain strings included, and add it to
+  `org-records-mcp-test--param-type-census`. Registration errors on an
+  undeclared parameter and the census fails on an unlisted one.
+  `CONTRIBUTING.org`, "What a parameter is published as", says why.
 - **`just lint` org-lints `README.org`, `CONTRIBUTING.org` and `docs/*.org`.** A
   link to a file that does not exist fails the commit, so a renamed or deleted
   page has to be repaired in the same change.

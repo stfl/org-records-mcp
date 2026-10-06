@@ -85,9 +85,9 @@ date.
 ** org-view
 - *Description:* Run a named view — a question the workflow has a name for — restricted by a named filter, at a named range
 - *Parameters:*
-  - =view= (string, required): the name of a view in =org-records-mcp-views=. An unknown name is refused, and the refusal lists the configured views
-  - =filter= (string, optional): the name of a filter in =org-records-mcp-filters= to restrict the view by. An unknown name is refused, and the refusal lists the configured filters
-  - =range= (string, optional): one of the range names that view declares. A view that takes a range runs at the one it declares first when the call names none
+  - =view= (string, required): the name of a view in =org-records-mcp-views=; the schema lists the configured names. An unknown name is refused, and the refusal lists the configured views
+  - =filter= (string, optional): the name of a filter in =org-records-mcp-filters= to restrict the view by; the schema lists the configured names. An unknown name is refused, and the refusal lists the configured filters
+  - =range= (string, optional): one of the range names that view declares; the schema lists every range a configured view takes. A view that takes a range runs at the one it declares first when the call names none
   - =fields= (array of strings, or a string, optional): how much of each matching node to return; it means here exactly what it means on =org-query=, and defaults to the same =org-records-mcp-list-fields=. See [[*What a match list carries][What a match list carries]]
   - =properties= (array of strings, or a string, optional): which Org drawer properties to return; none by default, as on =org-query=. See [[file:reading.org::*Asking for properties][Asking for properties]]
   - =computed= (array of strings, or a string, optional): which computed fields to return; the ones =org-records-mcp-list-computed-fields= names by default, as on =org-query=. See [[file:reading.org::*Asking for computed fields][Asking for computed fields]]
@@ -171,13 +171,17 @@ same answer every time.
 
 Set =org-records-mcp-views= before =org-records-mcp-enable=. That call is where org-records-mcp reads
 it: it decides whether =org-view= is registered at all, and it builds the
-description that names the views and their filters and ranges. A value set or
-changed after enabling reaches no client — the tool is missing, or it offers
-the views of the earlier value, with nothing said either way. Run
-=org-records-mcp-disable= and =org-records-mcp-enable= again to publish the new value.
-=org-records-mcp-filters= and =org-records-mcp-query-sort-fn= are read at call time, but the
-filter names are in that same description, so a new filter wants the same
-re-enable to be discoverable.
+description that names the views and their filters and ranges, and the schema
+that lists them as the only values =view=, =filter= and =range= take. A value
+set or changed after enabling reaches no client — the tool is missing, or it
+offers the views of the earlier value, with nothing said either way — and a
+client that checks its arguments against the schema refuses a view the schema
+does not list before the call reaches Emacs. Run =org-records-mcp-disable= and
+=org-records-mcp-enable= again to publish the new value; the client sees it
+once it reconnects. =org-records-mcp-filters= and =org-records-mcp-query-sort-fn= are read
+at call time, but the filter names are in that same description and schema, so
+a new filter wants the same re-enable to be discoverable and to pass a client's
+check (see [[file:installation.org::*The types the tool schema publishes][The types the tool schema publishes]]).
 
 Each entry of =org-records-mcp-views= is =(NAME . PLIST)=, =NAME= the symbol a call
 names the view by:
@@ -238,7 +242,8 @@ to publish a change.
 It changes what a client reads, never what a call does: a view runs by the name
 =org-records-mcp-views= gives it, and an unknown name or a parameter the view does not
 take is refused, whatever the description says. The refusal of an unknown name
-still lists the configured views.
+still lists the configured views, and so does the schema of the =view=
+parameter, whatever the function writes.
 
 * What a match list carries
 
