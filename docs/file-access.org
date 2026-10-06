@@ -66,8 +66,9 @@ A call names a file through a =file:= link (see
 [[*Querying other files]]), or an =id:= link, which names the file Emacs's ID
 index places its ID in (see [[*Naming the file of an ID]]).  The file of the
 running clock is not named by a call, so a clock running outside the allowed
-files stays out of reach whatever the setting, and a view always runs over the
-allowed files alone.
+files stays out of reach whatever the setting, and =org-clock-in= starts a
+clock only in the allowed files (see [[file:clocking.org::*org-clock-in][org-clock-in]]).  A view always
+runs over the allowed files alone.
 
 A named file outside the allowed files must also meet these conditions:
 

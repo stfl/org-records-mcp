@@ -11531,64 +11531,206 @@ reports it as active but not in an allowed file."
           (should
            (eq (alist-get 'in_allowed_file result) :json-false)))))))
 
+(defconst org-records-mcp-test--clock-outside-id
+  "c10c0000-1111-2222-3333-444444444444"
+  "ID of Task One in `org-records-mcp-test--clock-task-with-id-and-open-clock'.")
+
+(defconst org-records-mcp-test--clock-task-with-id-and-open-clock
+  (concat
+   "* TODO Task One\n"
+   ":PROPERTIES:\n"
+   ":ID:       " org-records-mcp-test--clock-outside-id "\n"
+   ":END:\n"
+   ":LOGBOOK:\n"
+   "CLOCK: [2026-01-01 Thu 10:00]\n"
+   ":END:\n")
+  "A heading carrying an ID and an unclosed CLOCK line.
+It is the file a clock runs in outside the allowed files.")
+
+(defmacro org-records-mcp-test--with-outside-session-clock (&rest body)
+  "Run BODY once per override setting while a clock runs outside the allowed files.
+Binds `allowed-file' to the only allowed file and `outside-file' to
+a file outside it holding
+`org-records-mcp-test--clock-task-with-id-and-open-clock', whose ID the
+index places there, and runs the Emacs clock on its CLOCK line.  BODY
+runs under nil, under t, and under a root list holding `outside-file'
+directory, so that file is one a call may reach and the clock in it
+is still one the clock tools refuse."
+  (declare (indent 0) (debug t))
+  `(dolist (override '(nil t roots))
+     (org-records-mcp-test--with-temp-org-files
+         ((allowed-file org-records-mcp-test--clock-task-content)
+          (outside-file
+           org-records-mcp-test--clock-task-with-id-and-open-clock))
+       (org-records-mcp-test--with-id-tracking
+           (list allowed-file)
+           `((,org-records-mcp-test--clock-outside-id . ,outside-file))
+         (let ((org-records-mcp-file-scope-override
+                (if (eq override 'roots)
+                    (list (file-name-directory outside-file))
+                  override)))
+           (org-records-mcp-test--with-session-clock outside-file
+             ,@body))))))
+
 (ert-deftest org-records-mcp-test-clock-in-refuses-session-clock-outside-allowed-files ()
   "Test clock-in refuses while the session clock runs outside the allowed files.
 org-records-mcp tells a client nothing about that clock, so no clock_out can
-name it: the call is refused with or without one.  Neither file, the
-buffer of the running clock, nor the running clock changes."
-  (org-records-mcp-test--with-temp-org-files
-      ((allowed-file org-records-mcp-test--clock-task-content)
-       (outside-file org-records-mcp-test--clock-task-with-open-clock))
-    (let ((org-records-mcp-allowed-files (list allowed-file)))
-      (org-records-mcp-test--with-session-clock outside-file
-        (let ((position (marker-position org-clock-marker)))
-          (dolist (clock-out
-                   (list nil (org-records-mcp-test--file-link outside-file "*Task One")))
-            (should
-             (string-match-p
-              "\\`A clock is running in a file outside the allowed files\\.  \
+name it: the call is refused with or without one, and with one that is
+the `file:' or the `id:' link to that clock's heading.  This holds
+under every override setting, also where the override reaches the
+clock's file.  Neither file, the buffer of the running clock, nor the
+running clock changes."
+  (org-records-mcp-test--with-outside-session-clock
+    (let ((position (marker-position org-clock-marker)))
+      (dolist (clock-out
+               (list nil
+                     (org-records-mcp-test--file-link outside-file "*Task One")
+                     (concat "id:" org-records-mcp-test--clock-outside-id)))
+        (should
+         (string-match-p
+          "\\`A clock is running in a file outside the allowed files\\.  \
 Ask the user to clock out of it before clocking in\\'"
-              (org-records-mcp-test--call-tool-expecting-error
-               allowed-file "org-clock-in"
-               `((link . ,(org-records-mcp-test--file-link allowed-file "*Task One"))
-                 (start_time . "2026-01-01T11:00:00")
-                 ,@(when clock-out `((clock_out . ,clock-out))))))))
-          (should (string= (org-records-mcp-test--read-file outside-file)
-                           org-records-mcp-test--clock-task-with-open-clock))
-          (org-records-mcp-test--verify-no-modified-buffer outside-file)
-          (should (eq (org-clock-is-active) (find-buffer-visiting outside-file)))
-          (should (= (marker-position org-clock-marker) position)))))))
+          (org-records-mcp-test--call-tool-expecting-error
+           allowed-file "org-clock-in"
+           `((link . ,(org-records-mcp-test--file-link allowed-file "*Task One"))
+             (start_time . "2026-01-01T11:00:00")
+             ,@(when clock-out `((clock_out . ,clock-out))))))))
+      (should (string= (org-records-mcp-test--read-file outside-file)
+                       org-records-mcp-test--clock-task-with-id-and-open-clock))
+      (org-records-mcp-test--verify-no-modified-buffer outside-file)
+      (should (eq (org-clock-is-active) (find-buffer-visiting outside-file)))
+      (should (= (marker-position org-clock-marker) position)))))
 
 (ert-deftest org-records-mcp-test-clock-out-refuses-session-clock-outside-allowed-files ()
   "Test clock-out refuses while the session clock runs outside the allowed files.
 The refusal is the whole message, so neither the file, the heading nor
-the start of that clock reaches the client, and org-records-mcp writes no file
-outside the allowed files.  It comes before `link' is looked at, so a
-link into the allowed files and one naming the running clock's own
-file are answered alike and neither confirms where that clock is.
-Neither the file, the buffer of the running clock, nor the running
-clock changes."
-  (org-records-mcp-test--with-temp-org-files
-      ((allowed-file org-records-mcp-test--clock-task-content)
-       (outside-file org-records-mcp-test--clock-task-with-open-clock))
-    (let ((org-records-mcp-allowed-files (list allowed-file)))
-      (org-records-mcp-test--with-session-clock outside-file
-        (let ((position (marker-position org-clock-marker)))
-          (dolist (file (list allowed-file outside-file))
+the start of that clock reaches the client, and org-records-mcp starts
+no clock outside the allowed files.  It comes before `link' is looked
+at, so a link into the allowed files, the `file:' link to the running
+clock's heading and its `id:' link are answered alike and none
+confirms where that clock is.  This holds under every override
+setting, also where the override reaches the clock's file.  Neither
+the file, the buffer of the running clock, nor the running clock
+changes."
+  (org-records-mcp-test--with-outside-session-clock
+    (let ((position (marker-position org-clock-marker)))
+      (dolist (link
+               (list (org-records-mcp-test--file-link allowed-file "*Task One")
+                     (org-records-mcp-test--file-link outside-file "*Task One")
+                     (concat "id:" org-records-mcp-test--clock-outside-id)))
+        (should
+         (string-match-p
+          "\\`A clock is running in a file outside the allowed files\\.  \
+Ask the user to clock out of it in Emacs\\'"
+          (org-records-mcp-test--call-tool-expecting-error
+           outside-file "org-clock-out"
+           `((link . ,link)
+             (end_time . "2026-01-01T11:00:00"))))))
+      (should (string= (org-records-mcp-test--read-file outside-file)
+                       org-records-mcp-test--clock-task-with-id-and-open-clock))
+      (org-records-mcp-test--verify-no-modified-buffer outside-file)
+      (should (eq (org-clock-is-active) (find-buffer-visiting outside-file)))
+      (should (= (marker-position org-clock-marker) position)))))
+
+(defun org-records-mcp-test--clock-in-outside-refusal (link)
+  "Return a regexp matching the whole refusal of a clock-in on LINK.
+LINK names a heading outside the allowed files."
+  (concat
+   "\\`'" (regexp-quote link)
+   "': a clock starts only in the allowed files, where org-clock-active \
+and org-clock-out find it\\'"))
+
+(ert-deftest org-records-mcp-test-clock-in-starts-no-clock-outside-allowed-files ()
+  "A clock starts only in the allowed files, wherever the override reaches.
+org-clock-active and org-clock-out find a clock in the allowed files
+alone, so a clock started outside them would be one neither sees.
+Under t and under a root holding the note, its heading is read by its
+`file:' link, by its `id:' link through the index and by its `id:'
+link with `files' naming the note, and a clock-in on each is refused
+by an error naming the link.  A clock-in that would close a clock
+running in an allowed file is refused before that clock is touched.
+Afterwards the note is as it was, the running clock still runs, and
+org-clock-dangling finds no clock in the note.  org-clock-add and
+org-clock-delete, which leave no clock running, reach the note by
+its `id:' link."
+  (dolist (kind '(t roots))
+    (org-records-mcp-test--with-scope-dirs (if (eq kind 'roots)
+                                       (list root)
+                                     t)
+      (let* ((note (org-records-mcp-test--write-file
+                    root "note.org"
+                    org-records-mcp-test--scope-task-with-id-content))
+             (plain (org-records-mcp-test--write-file
+                     outside "plain.org" org-records-mcp-test--clock-task-content))
+             (calls
+              `((,(org-records-mcp-test--file-link note "*Task"))
+                (,org-records-mcp-test--scope-id-link)
+                (,org-records-mcp-test--scope-id-link
+                 (files . ,(vector note))))))
+        (org-records-mcp-test--with-id-tracking
+            (list plain)
+            `((,org-records-mcp-test--content-with-id-id . ,note))
+          (pcase-dolist (`(,link . ,files) calls)
+            (should
+             (string-prefix-p
+              "* TODO Task"
+              (mcp-server-lib-ert-call-tool
+               "org-node-text" `((link . ,link) ,@files))))
+            (org-records-mcp-test--call-tool-refused
+             "org-clock-in"
+             `((link . ,link) (start_time . "2026-01-01T11:00:00") ,@files)
+             (org-records-mcp-test--clock-in-outside-refusal link)
+             note))
+          (should
+           (equal (org-records-mcp-test--call-clock-get-active)
+                  '((active . :json-false))))
+          (let* ((running (org-records-mcp-test--write-file
+                           outside "running.org"
+                           org-records-mcp-test--clock-task-with-open-clock))
+                 (org-records-mcp-allowed-files (list plain running)))
+            (org-records-mcp-test--with-session-clock running
+              (let ((position (marker-position org-clock-marker))
+                    (link org-records-mcp-test--scope-id-link))
+                (org-records-mcp-test--call-tool-refused
+                 "org-clock-in"
+                 `((link . ,link)
+                   (start_time . "2026-01-01T11:00:00")
+                   (clock_out
+                    . ,(org-records-mcp-test--file-link running "*Task One")))
+                 (org-records-mcp-test--clock-in-outside-refusal link)
+                 running)
+                (should
+                 (eq (org-clock-is-active) (find-buffer-visiting running)))
+                (should (= (marker-position org-clock-marker) position)))))
+          (should
+           (string= (org-records-mcp-test--read-file note)
+                    org-records-mcp-test--scope-task-with-id-content))
+          (should
+           (equal
+            (alist-get
+             'total
+             (json-read-from-string
+              (mcp-server-lib-ert-call-tool
+               "org-clock-dangling" `((files . ,(vector note))))))
+            0))
+          ;; A finished clock leaves nothing running, so adding one and
+          ;; deleting it again reach the note as any other write does.
+          (let ((link org-records-mcp-test--scope-id-link))
+            (mcp-server-lib-ert-call-tool
+             "org-clock-add"
+             `((link . ,link)
+               (start . "2026-01-01T09:00:00")
+               (end . "2026-01-01T10:00:00")))
             (should
              (string-match-p
-              "\\`A clock is running in a file outside the allowed files\\.  \
-Ask the user to clock out of it in Emacs\\'"
-              (org-records-mcp-test--call-tool-expecting-error
-               outside-file "org-clock-out"
-               `((link
-                  . ,(org-records-mcp-test--file-link file "*Task One"))
-                 (end_time . "2026-01-01T11:00:00"))))))
-          (should (string= (org-records-mcp-test--read-file outside-file)
-                           org-records-mcp-test--clock-task-with-open-clock))
-          (org-records-mcp-test--verify-no-modified-buffer outside-file)
-          (should (eq (org-clock-is-active) (find-buffer-visiting outside-file)))
-          (should (= (marker-position org-clock-marker) position)))))))
+              "^CLOCK: \\[2026-01-01 [A-Za-z]+ 09:00\\]--"
+              (org-records-mcp-test--read-file note)))
+            (mcp-server-lib-ert-call-tool
+             "org-clock-delete"
+             `((link . ,link) (start . "2026-01-01T09:00:00")))
+            (should
+             (string= (org-records-mcp-test--read-file note)
+                      org-records-mcp-test--scope-task-with-id-content))))))))
 
 (ert-deftest org-records-mcp-test-clock-out-publishes-link-as-required ()
   "org-clock-out publishes `link' as the one parameter a call must carry.
@@ -31944,6 +32086,8 @@ file:/home/user/notes.org::*Heading, or an id: link"
     "Cannot parse timestamp: '%s'"
     "Not a time: '%s'.  Org reads it as %s, which is not the time the call named"
     "clock_out names a clock to close, but no clock is running: %s"
+    "'%s': a clock starts only in the allowed files, where org-clock-active and org-clock-out \
+find it"
     "A clock is running in a file outside the allowed files.  Ask the user to clock out of it \
 before clocking in"
     "A clock is running on %s.  Ask the user whether to clock out of it, then send its link as \

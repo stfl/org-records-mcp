@@ -85,8 +85,8 @@ the call that names the file; nothing carries over to later calls.
 An `id:' link names the file Emacs's ID index places its ID in, so
 this setting reaches that file as it reaches the file of a `file:'
 link.  The file of the running clock is not named by the call and
-stays within the allowed files, and a view always runs over the
-allowed files alone.
+stays within the allowed files, a clock starts only in the allowed
+files, and a view always runs over the allowed files alone.
 
 A file reachable this way is an existing local file ending in
 `.org' or `.org_archive'; an encrypted `.org.gpg' file is not.
@@ -8645,6 +8645,11 @@ MCP Parameters: None"
 (defun org-records-mcp--tool-clock-in
     (link &optional start_time resolve files clock_out)
   "Clock in to the heading LINK names.
+LINK must name a heading in the allowed files, even where
+`org-records-mcp-file-scope-override' reaches further: the clock it
+starts outlives the call, and `org-records-mcp--clock-find-active' looks
+for a clock in the allowed files alone, so one started anywhere else
+would run unseen by org-clock-active and org-clock-out.
 While a clock runs, CLOCK_OUT must name its heading, see
 `org-records-mcp--clock-check-clock-out', and that clock is closed first, at
 the new clock's start, which must not precede its own.  LINK,
@@ -8701,6 +8706,16 @@ MCP Parameters:
          ;; Closing the running clock may edit another buffer that
          ;; already had unsaved edits; `saved' covers that edit too.
          (org-records-mcp--unsaved-change-p nil))
+    ;; A running clock outlives the call that starts it, and a scope
+    ;; override lasts for that call alone: org-clock-active and
+    ;; org-clock-out look for a clock in the allowed files only, so
+    ;; one started in a file the override reaches would run where no
+    ;; later call finds it.
+    (unless (org-records-mcp--find-allowed-file file-path)
+      (org-records-mcp--tool-validation-error
+       "'%s': a clock starts only in the allowed files, where \
+org-clock-active and org-clock-out find it"
+       (plist-get target :link)))
     ;; Every check runs before any clock is closed, so a refused call
     ;; changes nothing: a link that names no heading, such as
     ;; file:…::*Nope, is refused with the running clock intact.
@@ -8789,8 +8804,8 @@ started in Emacs and the client never saw.  The link
 `org-records-mcp--tool-clock-active' reports for the running clock names it;
 see `org-records-mcp--clock-names-running-p' for the rest.
 A clock running in a file outside the allowed files is refused, as
-clocking in refuses it: org-records-mcp writes no file outside them, and the
-refusal names neither that file nor the heading and start of the clock
+clocking in refuses it: org-records-mcp starts no clock outside them, and
+the refusal names neither that file nor the heading and start of the clock
 it holds, which `org-records-mcp--tool-clock-active' withholds too.  That
 refusal comes before LINK is looked at, so it reveals nothing about
 the clock either way.
@@ -10665,6 +10680,10 @@ clock's heading by title and link, and its start, so ask the user
 before clocking out of it.  A clock running outside the allowed files
 cannot be named: ask the user to clock out of it.
 
+A clock starts only in the allowed files, where org-clock-active and
+org-clock-out find it: a link to a heading outside them is refused,
+even one org-records-mcp-file-scope-override lets other tools reach.
+
 When org-clock-continuously is enabled and no explicit start_time
 is given, the new clock may start at the previous clock's end time
 if it is within the continuous threshold.
@@ -10734,9 +10753,9 @@ CLOCK line of no length, and the drawer it empties, and
 org-clock-out-switch-to-state rewrites the heading's TODO keyword.
 The response reports neither, so read the heading back when it matters.
 
-A clock running outside the allowed files is refused: org-records-mcp writes
-no file outside them and reports nothing about that clock, so ask the
-user to clock out of it in Emacs.
+A clock running outside the allowed files is refused: org-records-mcp
+starts no clock outside them and reports nothing about that clock, so
+ask the user to clock out of it in Emacs.
 
 Rounding is applied per org-clock-rounding-minutes.
 
