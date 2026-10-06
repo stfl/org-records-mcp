@@ -4508,7 +4508,10 @@ before any lookup, and the file is left alone."
        test-file))))
 
 (ert-deftest org-records-mcp-test-id-resource-file-not-allowed ()
-  "Test org-node-text tool validates file is in allowed list."
+  "Under the default override, nil, org-node-text keeps to the allowed files.
+An ID the index places in a file outside them is refused, naming the
+link; where the override permits that file, see
+`org-records-mcp-test-file-set-id-outside-allowed-files'."
   ;; Create two files - one allowed, one not
   (org-records-mcp-test--with-temp-org-files
       ((allowed-file "* Allowed\n")
@@ -4522,10 +4525,11 @@ before any lookup, and the file is left alone."
     (org-records-mcp-test--with-id-tracking
         (list allowed-file)
         `(("test-id-789" . ,other-file))
-      (org-records-mcp-test--call-tool-refused
-       "org-node-text" '((link . "id:test-id-789"))
-       (org-records-mcp-test--refused-path-regexp "id:test-id-789")
-       other-file))))
+      (let ((org-records-mcp-file-scope-override nil))
+        (org-records-mcp-test--call-tool-refused
+         "org-node-text" '((link . "id:test-id-789"))
+         (org-records-mcp-test--refused-path-regexp "id:test-id-789")
+         other-file)))))
 
 (ert-deftest org-records-mcp-test-update-todo-state-success ()
   "Test successful TODO state update."
@@ -20636,14 +20640,18 @@ unchanged."
       (should-not (find-buffer-visiting other-file)))))
 
 (ert-deftest org-records-mcp-test-link-id-outside-allowed-files-refused ()
-  "An ID in a file outside the allowed files is refused without its path."
+  "Under the default override, nil, an ID outside the allowed files is refused.
+The refusal names neither the file nor its path, and no buffer is
+opened on it.  Where the override permits the file, the ID resolves;
+see `org-records-mcp-test-file-set-id-outside-allowed-files'."
   (org-records-mcp-test--with-temp-org-files
       ((allowed-file "* Allowed\n")
        (other-file org-records-mcp-test--content-links))
     (org-records-mcp-test--with-id-tracking
         (list allowed-file)
         `((,org-records-mcp-test--link-beta-id . ,other-file))
-      (let ((link (format "id:%s" org-records-mcp-test--link-beta-id)))
+      (let ((link (format "id:%s" org-records-mcp-test--link-beta-id))
+            (org-records-mcp-file-scope-override nil))
         (dolist (call
                  `(("org-node-text" (link . ,link))
                    ("org-node-set-tags" (link . ,link) (before . []) (after . "work"))))
@@ -20824,6 +20832,36 @@ with the file unchanged."
                               "* Allowed\n")))
                 (delete-file org-id-locations-file)))))))))
 
+(ert-deftest org-records-mcp-test-link-id-abbreviated-index-entry-takes-the-override ()
+  "An index entry written with `~' is checked as the file it expands to.
+Org keeps the files of its index abbreviated, as `~/note.org' for a
+file in the home directory.  With HOME set to the root, such an entry
+names the note in the root: under a root list holding the root, the
+`id:' link resolves to it, and under nil it is refused by an error
+naming the link alone, with the note unchanged."
+  (dolist (kind '(roots nil))
+    (org-records-mcp-test--with-scope-dirs (and (eq kind 'roots) (list root))
+      (let ((note (org-records-mcp-test--write-file
+                   root "note.org"
+                   org-records-mcp-test--scope-task-with-id-content))
+            (process-environment
+             (cons (concat "HOME=" (directory-file-name root))
+                   process-environment)))
+        (should (string= (expand-file-name "~/note.org") note))
+        (org-records-mcp-test--with-id-tracking
+            (list allowed)
+            `((,org-records-mcp-test--content-with-id-id . "~/note.org"))
+          (should
+           (equal (gethash org-records-mcp-test--content-with-id-id
+                           org-id-locations)
+                  "~/note.org"))
+          (if (eq kind 'roots)
+              (org-records-mcp-test--assert-id-task-permitted note nil)
+            (org-records-mcp-test--assert-id-task-refused
+             note nil
+             (org-records-mcp-test--refused-path-regexp
+              org-records-mcp-test--scope-id-link))))))))
+
 (defconst org-records-mcp-test--id-reach-content
   (concat
    "* TODO Note\n"
@@ -20848,13 +20886,15 @@ The heading is one of `org-records-mcp-test--id-reach-content'."
   (concat "id:11111111-2222-3333-4444-" last-digits))
 
 (ert-deftest org-records-mcp-test-link-id-takes-the-override-at-every-link-parameter ()
-  "Every link parameter resolves an `id:' link through the same gate.
+  "Every link parameter looked up in the index takes the override.
 The note lies outside the allowed files, under a root, and its IDs
 are in the index.  Under that root, org-node-create's `parent' and
-`previous_sibling', and org-node-refile's `link' and `parent', each
-reach it by `id:' with no `files'.  Under nil, an `id:' `parent' of
-either tool is refused by an error naming the link, and neither file
-changes."
+org-node-refile's `link' and `parent' each reach it by `id:' with no
+`files', through the index.  org-node-create's `previous_sibling'
+consults no index: its `id:' link is looked up in the parent's file,
+wherever that is, and the new node lands right after First rather
+than last.  Under nil, an `id:' `parent' of either tool is refused by
+an error naming the link, and neither file changes."
   (let ((org-todo-keywords '((sequence "TODO" "|" "DONE"))))
     (dolist (kind '(roots nil))
       (org-records-mcp-test--with-scope-dirs (and (eq kind 'roots) (list root))
@@ -20893,6 +20933,22 @@ changes."
                  (todo . "TODO")
                  (parent . ,parent)
                  (previous_sibling . ,sibling)))
+              (should
+               (string= (org-records-mcp-test--read-file note)
+                        (concat
+                         "* TODO Note\n"
+                         ":PROPERTIES:\n"
+                         ":ID:       11111111-2222-3333-4444-555555555555\n"
+                         ":END:\n"
+                         "** First\n"
+                         ":PROPERTIES:\n"
+                         ":ID:       11111111-2222-3333-4444-666666666666\n"
+                         ":END:\n"
+                         "** TODO Created\n"
+                         "** TODO Moving\n"
+                         ":PROPERTIES:\n"
+                         ":ID:       11111111-2222-3333-4444-777777777777\n"
+                         ":END:\n")))
               (mcp-server-lib-ert-call-tool
                "org-node-refile"
                `((link . ,item)
