@@ -26,10 +26,14 @@ link a client finds in a body is the next call's =link=:
 - org-records-mcp resolves a link with Org's own lookup. For an ID, that is Emacs's ID
   index, read with =org-id-find-id-file=, or =org-id-find-id-in-file= in each
   file a call names in =files= (see [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]). The file
-  the index names must be one of the allowed files before org-records-mcp reads it, so
-  an index entry for a remote or outside file is refused without touching that
-  file. When the index lacks the ID, or names a file that does not hold it,
-  org-records-mcp rescans the index once, as =org-id-find= does. For the part after
+  the index names must be one the call may reach, an allowed file or one
+  =org-records-mcp-file-scope-override= permits, before org-records-mcp reads
+  it, so an index entry for a remote file, or for a file the call may not
+  reach, is refused without org-records-mcp reading that file. When the index
+  lacks the ID, or names a file that does not hold it, org-records-mcp rescans
+  the index once, as =org-id-find= does, and checks the file the rescan names
+  the same way; the rescan itself is Org's and reads every file Org knows of
+  (see [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]). For the part after
   =::=, it is =org-link-search=. The search part of an =id:= link, as in
   =id:<id>::*Review=, runs within that heading's subtree; a =file:= link
   searches the whole file. A title that matches several headings resolves to
@@ -48,11 +52,10 @@ link a client finds in a body is the next call's =link=:
   subtree, and so do the buffers you have open. A tool works in the buffer
   visiting the heading's file; when no buffer visits it, the tool opens one and
   leaves it open.
-- A =file:= link names its file, so it reaches the allowed files and any Org
-  file =org-records-mcp-file-scope-override= permits (see
-  [[file:file-access.org::*Configuring the scope override][Configuring the scope override]]). An =id:= link names no file and
-  resolves only within the allowed files, unless the call names its file in
-  =files=.
+- A =file:= link names its file, and an =id:= link the file Emacs's ID index
+  places its ID in. Either reaches the allowed files and any Org file
+  =org-records-mcp-file-scope-override= permits (see
+  [[file:file-access.org::*Configuring the scope override][Configuring the scope override]]).
 - An =id:= link whose =ID= sits in a file-level property drawer, before the
   first heading, where org-roam keeps the =ID= of a file node, addresses the
   whole file, as =org-id-open= opens the file at its top. In =org-node-read=,
@@ -138,12 +141,12 @@ org-records-mcp adds neither on its own. Set one with the =properties= parameter
 afterwards. Once a heading has one, every link org-records-mcp returns for it is the
 stable one (see [[*Links org-records-mcp returns]]).
 
-An =id:= link names no file, so on its own it resolves only within the allowed
-files, through Emacs's ID index. org-records-mcp does not add a new =ID= to that index,
-so the first lookup of it rescans the index; a call that names the heading's
-file in =files= avoids the rescan. For an ID in a file outside the allowed
-files, name that file in =files= on each call that sends the link, as far as
-=org-records-mcp-file-scope-override= permits (see [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]).
+An =id:= link resolves through Emacs's ID index, to the file the index names,
+as far as the allowed files and =org-records-mcp-file-scope-override= reach (see
+[[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]). org-records-mcp does not add a new =ID= to that
+index, so the first lookup of it rescans the index; a call that names the
+heading's file in =files= avoids the rescan, and reaches an ID in a file Emacs
+has not indexed.
 
 * Links org-records-mcp returns
 

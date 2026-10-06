@@ -124,7 +124,7 @@ Example responses:
 ** org-clock-in
 - *Description:* Clock in to the specified heading. Supports continuous clocking and time rounding. Only one clock runs at a time: while one runs, the call must name it in =clock_out=, and that clock is closed at the new clock's start before the new one opens. Naming it makes sure the client knows which clock it closes, so it can ask the user first
 - *Parameters:*
-  - =link= (string, required): link to the node (see [[file:links.org::*Addressing headings with links][Addressing headings with links]])
+  - =link= (string, required): link to the node (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]), a heading in the allowed files
   - =start_time= (string, optional): ISO 8601 start time (e.g. =2026-03-23T14:30:00=). Left out, or blank — =null=, =false=, =""=, =[]= or only whitespace — it is the current time (or the previous clock's end if continuous clocking applies). The running clock closes at this time, so it must not be before that clock's start
   - =resolve= (boolean, optional): true deletes the dangling (unclosed) CLOCK entries the heading itself carries, before clocking in — every open one of that heading but the running clock. A dangling clock on a child is that child's, and survives a call naming its parent. The running clock is never deleted: =clock_out= names it, and it is closed. =false=, ="false"=, =null=, =""= and =[]= mean no; any other value is refused
   - =files= (array of strings, optional): Files and directories to look up an =id:= link in =link= in, instead of the ID index; see [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]
@@ -143,7 +143,12 @@ Every check runs before anything changes, so a refused call changes no file, no 
 - the new clock's start, =start_time= or else the current time, is before the running clock's start, since closing that clock there would give it a negative duration.
 - =start_time= cannot be parsed.
 - =resolve= is neither true nor false.
-- =link= names no heading, or =link= or =clock_out= is no link org-records-mcp takes or names a file outside the allowed files.  These get the errors any link parameter gets (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]).
+- =link= names a heading outside the allowed files, even one =org-records-mcp-file-scope-override= lets the other tools reach.  A clock outlives the call that starts it, and =org-clock-active= and =org-clock-out= look for it in the allowed files alone, so a clock started anywhere else would run where no later call finds it.  The refusal names the link:
+  #+begin_example
+  'id:550e8400-e29b-41d4-a716-446655440000': a clock starts only in the allowed files, where org-clock-active and org-clock-out find it
+  #+end_example
+  =org-clock-add= and =org-clock-delete= leave no clock running, so they reach every heading the override permits.
+- =link= names no heading, or =link= or =clock_out= is no link org-records-mcp takes or names a file outside the files the call may reach (the allowed files and what =org-records-mcp-file-scope-override= permits).  These get the errors any link parameter gets (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]).
 
 Example:
 #+begin_src json
@@ -220,7 +225,7 @@ opening one is closed without prose.
 
 A call is refused when:
 
-- a clock runs in a file outside the allowed files, as =org-clock-in= refuses one.  org-records-mcp writes no file outside the allowed files, and says nothing about that clock, neither its file nor its heading nor its start, so the user has to clock out of it in Emacs:
+- a clock runs in a file outside the allowed files, as =org-clock-in= refuses one.  org-records-mcp starts no clock outside the allowed files, and says nothing about that clock, neither its file nor its heading nor its start, so the user has to clock out of it in Emacs:
   #+begin_example
   A clock is running in a file outside the allowed files.  Ask the user to clock out of it in Emacs
   #+end_example
@@ -233,7 +238,7 @@ A call is refused when:
   conflict: link does not name the running clock: file:~/org/tasks.org::*Write the report.  The clock runs on 'Implement feature X' (id:550e8400-e29b-41d4-a716-446655440000) since 2026-03-23 Mon 14:30
   #+end_example
 - =end_time= is before the running clock's start, or cannot be parsed.  An =end_time= before the start is the client's to fix and stays unmarked: reading the clock again does not make the time it sent valid.
-- =link= is no link org-records-mcp takes, or names a file outside the allowed files.  These get the errors any link parameter gets (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]).
+- =link= is no link org-records-mcp takes, or names a file outside the files the call may reach (the allowed files and what =org-records-mcp-file-scope-override= permits).  These get the errors any link parameter gets (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]).
 
 A clock running outside the allowed files is refused before =link= is read, so a link into the allowed files and one naming that clock's own file are answered alike and neither tells the client where the clock is.
 
@@ -326,7 +331,7 @@ A call is refused when:
   blocked: 2 clock entries on this heading start at [2026-03-23 Mon 14:30]: one ending [2026-03-23 Mon 15:30] and one ending [2026-03-23 Mon 16:45].  start names no one of them, so delete the one you mean in Emacs
   #+end_example
   An entry still running is named as =one still open=. =org-clock-rounding-minutes= is what makes such a pair ordinary: set to 5, it writes a clock added at 14:31 and one added at 14:32 both as beginning 14:30.
-- =start= cannot be parsed, or =link= is no link org-records-mcp takes, names no heading, or names a file outside the allowed files. These get the errors any link parameter gets (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]).
+- =start= cannot be parsed, or =link= is no link org-records-mcp takes, names no heading, or names a file outside the files the call may reach (the allowed files and what =org-records-mcp-file-scope-override= permits). These get the errors any link parameter gets (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]).
 
 Example:
 #+begin_src json

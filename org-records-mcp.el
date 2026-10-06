@@ -82,8 +82,11 @@ decides whether that is permitted:
 
 The permission covers reading and writing alike and applies only to
 the call that names the file; nothing carries over to later calls.
-A file an ID resolves to, or the file of the running clock, is not
-named by the call and stays within the allowed files.
+An `id:' link names the file Emacs's ID index places its ID in, so
+this setting reaches that file as it reaches the file of a `file:'
+link.  The file of the running clock is not named by the call and
+stays within the allowed files, a clock starts only in the allowed
+files, and a view always runs over the allowed files alone.
 
 A file reachable this way is an existing local file ending in
 `.org' or `.org_archive'; an encrypted `.org.gpg' file is not.
@@ -727,13 +730,15 @@ when it, or what it points to, is remote (TRAMP), before TRAMP can
 open a connection for it.  A FILENAME in the allowed files is
 reachable, and the expanded allowed-files entry is returned.
 
-NAMED non-nil means the call itself names FILENAME, which makes it
-a scope override when FILENAME lies outside the allowed files.
+NAMED non-nil means the call names FILENAME, which makes it a scope
+override when FILENAME lies outside the allowed files.  A call names
+the file of a `file:' link, an entry of its `files', and the file
+Emacs's ID index places the ID of an `id:' link in.
 `org-records-mcp-file-scope-override' then decides: its truename must end
 in `.org' or `.org_archive' and be an existing regular file, and
 `org-records-mcp--override-permits-p' must permit it.  A permitted FILENAME
-is returned as its truename.  Without NAMED, as for a file an ID
-resolves to, only the allowed files are reachable."
+is returned as its truename.  Without NAMED, as for the file of the
+running clock, only the allowed files are reachable."
   (when-let* ((truename (org-records-mcp--local-truename filename)))
     (if-let* ((found
                (cl-find
@@ -3091,19 +3096,29 @@ may not reach."
                 org-records-mcp--link-forms-hint))))))
 
 (defun org-records-mcp--link-id-file (id link)
-  "Return the allowed file that holds ID, which LINK names.
+  "Return the file that holds ID, which LINK names, when the call may reach it.
 Emacs's ID index names the file, through `org-id-find-id-file', which
 only reads the index.  That file must pass the scope gate,
-`org-records-mcp--find-allowed-file', as a file the call does not name, before
-anything touches it: a remote file, or one outside the allowed files,
-is refused without a single file operation on it.  Only then is the
-file searched for ID, with `org-id-find-id-in-file', which reads the
-buffer visiting it, or else its contents into a temporary buffer.
+`org-records-mcp--find-allowed-file', before this function reads it,
+and it passes as a file the call names: the index names it on the
+call's behalf, so `org-records-mcp-file-scope-override' reaches it as
+it reaches the file of a `file:' link.  A file the index names that
+is neither allowed nor permitted by the override is refused without
+being read, and a remote one, or a symlink to one, before TRAMP can
+open a connection for it.  Only then is the file searched for ID,
+with `org-id-find-id-in-file', which reads the buffer visiting it, or
+else its contents into a temporary buffer.
 
 When the index lacks ID, or the file it names does not hold it, the
 index is rescanned once with `org-id-update-id-locations', as
 `org-id-find' does on a miss, and the file it then names goes through
-the gate in turn; the caller finds ID in that file's buffer.
+the gate in turn; the caller finds ID in that file's buffer.  The
+rescan is Org's and reads every file Org knows of, whatever the
+scope: the agenda files and their archives, `org-id-extra-files', the
+files of `org-id-files' and every Org file a buffer visits.  It
+resolves each with `file-truename', so a remote file among them is
+handed to TRAMP.  A first answer the gate refuses ends the lookup
+there, with no rescan.
 `org-id-find' is not called itself: it reads the file the index names
 before any gate could refuse it, and so asks TRAMP about a remote one.
 
@@ -3119,7 +3134,7 @@ this function throws names a file."
                  (org-id-find-id-file id))))
             (reachable
              (file)
-             (or (org-records-mcp--find-allowed-file file)
+             (or (org-records-mcp--find-allowed-file file t)
                  (org-records-mcp--tool-file-access-error link))))
     (unless (org-string-nw-p id)
       (org-records-mcp--id-not-found-error id))
@@ -3175,15 +3190,17 @@ names its file already, or a link of another type."
     (link name &optional files id-file)
   "Return the target of LINK, the link parameter NAME carries.
 LINK is a native Org link and no buffer is visited to resolve it.
-The value is a plist: `:link' is LINK, `:file' the allowed file it
-names, `:id' the ID of an `id:' link, and `:search' the part after
-`::', if any.  Whether an `id:' link without a search part names a
-heading or its whole file is decided in the file's buffer, by
-`org-records-mcp--target-heading-p'.  Only `id:' and `file:' links are
-accepted.  A string that is not a link is refused by
-`org-records-mcp--link-parse', and every other link type here, before any
-file is opened, and so is a link that names no file, such as
-`[[#custom-id]]' or `[[*Title]]'.
+The value is a plist: `:link' is LINK, `:file' the file it names,
+which the call may reach, `:id' the ID of an `id:' link, and
+`:search' the part after `::', if any.  The file of an `id:' link is
+the one Emacs's ID index names, through `org-records-mcp--link-id-file',
+unless FILES or ID-FILE say otherwise.  Whether an `id:' link without
+a search part names a heading or its whole file is decided in the
+file's buffer, by `org-records-mcp--target-heading-p'.  Only `id:'
+and `file:' links are accepted.  A string that is not a link is
+refused by `org-records-mcp--link-parse', and every other link type
+here, before any file is opened, and so is a link that names no
+file, such as `[[#custom-id]]' or `[[*Title]]'.
 
 NAME is the parameter LINK arrived in, so that a blank is refused as
 the parameter it is rather than parsed: every link a call sends comes
@@ -8634,6 +8651,11 @@ MCP Parameters: None"
 (defun org-records-mcp--tool-clock-in
     (link &optional start_time resolve files clock_out)
   "Clock in to the heading LINK names.
+LINK must name a heading in the allowed files, even where
+`org-records-mcp-file-scope-override' reaches further: the clock it
+starts outlives the call, and `org-records-mcp--clock-find-active' looks
+for a clock in the allowed files alone, so one started anywhere else
+would run unseen by org-clock-active and org-clock-out.
 While a clock runs, CLOCK_OUT must name its heading, see
 `org-records-mcp--clock-check-clock-out', and that clock is closed first, at
 the new clock's start, which must not precede its own.  LINK,
@@ -8690,6 +8712,16 @@ MCP Parameters:
          ;; Closing the running clock may edit another buffer that
          ;; already had unsaved edits; `saved' covers that edit too.
          (org-records-mcp--unsaved-change-p nil))
+    ;; A running clock outlives the call that starts it, and a scope
+    ;; override lasts for that call alone: org-clock-active and
+    ;; org-clock-out look for a clock in the allowed files only, so
+    ;; one started in a file the override reaches would run where no
+    ;; later call finds it.
+    (unless (org-records-mcp--find-allowed-file file-path)
+      (org-records-mcp--tool-validation-error
+       "'%s': a clock starts only in the allowed files, where \
+org-clock-active and org-clock-out find it"
+       (plist-get target :link)))
     ;; Every check runs before any clock is closed, so a refused call
     ;; changes nothing: a link that names no heading, such as
     ;; file:…::*Nope, is refused with the running clock intact.
@@ -8778,8 +8810,8 @@ started in Emacs and the client never saw.  The link
 `org-records-mcp--tool-clock-active' reports for the running clock names it;
 see `org-records-mcp--clock-names-running-p' for the rest.
 A clock running in a file outside the allowed files is refused, as
-clocking in refuses it: org-records-mcp writes no file outside them, and the
-refusal names neither that file nor the heading and start of the clock
+clocking in refuses it: org-records-mcp starts no clock outside them, and
+the refusal names neither that file nor the heading and start of the clock
 it holds, which `org-records-mcp--tool-clock-active' withholds too.  That
 refusal comes before LINK is looked at, so it reveals nothing about
 the clock either way.
@@ -9305,8 +9337,9 @@ Parameters: None
 Returns JSON object containing:
   files (array of strings): Absolute paths of allowed Org files
   override_allowed (boolean): Whether a call may name an Org file
-    outside the allowed files.  The permission lasts for that one
-    call only.
+    outside the allowed files, by a file: link, an entry of files,
+    or an id: link whose ID Emacs's ID index places there.  The
+    permission lasts for that one call only.
   override_roots (array of strings, present only when overriding is
     limited to directories): Absolute paths of the directories under
     which a named Org file is permitted.  When override_allowed is
@@ -10354,8 +10387,10 @@ Parameters:
      org-records-mcp--computed-description
      "  files - Files and directories to look up an id: link in (array of
           strings, optional)
-          An id: link names no file, so without files it resolves
-          only within the allowed files.  With files, the ID is
+          Without files, an id: link resolves to the file Emacs's ID
+          index names for it, which must be in the allowed files or
+          permitted by org-records-mcp-file-scope-override, as the
+          file of a file: link must.  With files, the ID is
           looked up in these files instead, in the order given,
           rather than in Emacs's ID index: a heading in a file Emacs
           never indexed is found, and no index rescan runs.  Entries
@@ -10651,6 +10686,10 @@ clock's heading by title and link, and its start, so ask the user
 before clocking out of it.  A clock running outside the allowed files
 cannot be named: ask the user to clock out of it.
 
+A clock starts only in the allowed files, where org-clock-active and
+org-clock-out find it: a link to a heading outside them is refused,
+even one org-records-mcp-file-scope-override lets other tools reach.
+
 When org-clock-continuously is enabled and no explicit start_time
 is given, the new clock may start at the previous clock's end time
 if it is within the continuous threshold.
@@ -10720,9 +10759,9 @@ CLOCK line of no length, and the drawer it empties, and
 org-clock-out-switch-to-state rewrites the heading's TODO keyword.
 The response reports neither, so read the heading back when it matters.
 
-A clock running outside the allowed files is refused: org-records-mcp writes
-no file outside them and reports nothing about that clock, so ask the
-user to clock out of it in Emacs.
+A clock running outside the allowed files is refused: org-records-mcp
+starts no clock outside them and reports nothing about that clock, so
+ask the user to clock out of it in Emacs.
 
 Rounding is applied per org-clock-rounding-minutes.
 
