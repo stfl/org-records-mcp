@@ -7,9 +7,10 @@ object, and reads it back as the object before any other check runs. A value
 whose first non-blank character is `{` and which is not a JSON object is
 refused, naming the parameter.
 
-The cause is the one ADR 0021 records for arrays: the advertised schema types
-every parameter as `string`, so a client that validates its arguments against
-it cannot send an object at all and sends the object's text instead. Without
+The cause is the one ADR 0021 records for arrays: the advertised schema
+publishes these parameters as objects (ADR 0034), and a client that sends every
+argument as a string, whatever the schema says, cannot send an object at all
+and sends the object's text instead. Without
 this the text meets the parameter's own check as a string and is refused, which
 leaves a property unwritable through such a client — `before` is required beside
 `after`, so both have to reach the tool together — and a repeating

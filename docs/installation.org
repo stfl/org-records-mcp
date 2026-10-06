@@ -11,7 +11,7 @@ Requires Emacs 30.1 or later. CI covers Emacs 30.2 and 31.1 on Linux and macOS.
 Which Org settings org-records-mcp is exercised against, which it ignores on purpose and
 which nothing measures is [[file:verified-settings.org][The Org configuration org-records-mcp is verified against]].
 
-org-records-mcp builds on =mcp-server-lib= 0.4.0 and =org-ql= 0.9, which come in with
+org-records-mcp builds on =mcp-server-lib= 0.5.0 and =org-ql= 0.9, which come in with
 the package. Both live on MELPA, so keep MELPA in =package-archives= even though
 org-records-mcp itself does not come from there. The pins live in =Eask= and in the
 =Package-Requires= header of =org-records-mcp.el=.
@@ -122,18 +122,51 @@ field, so a client can name the server and the version it is talking to.
 
 To remove the installed wrapper, run =M-x org-records-mcp-uninstall=.
 
+* The types the tool schema publishes
+
+Every tool's =inputSchema= gives each parameter its JSON type, so a client that
+checks its arguments against the schema sends each value as what it is:
+
+- =files= :: an array of strings.
+- =tags=, and =before= and =after= on the tag tools and =org-file-set-setting= :: a
+  string, or an array of strings.
+- =fields= :: an array of field names, or the name of a field list.
+- =computed=, and =properties= on =org-node-read=, =org-query= and =org-view= ::
+  an array of names, or ="all"= or ="none"=.
+- =properties= on =org-node-create=, and =before= and =after= on
+  =org-node-set-properties= :: an object whose values are strings, numbers,
+  booleans or =null=.
+- =before_planning= :: an object naming =scheduled=, =deadline= or both, and no
+  other key.
+- =after= on =org-node-set-todo=, =org-node-set-scheduled=,
+  =org-node-set-deadline= and =org-node-set-priority= :: a string, or =null=.
+- =depth= :: an integer, 0 or more.
+- =resolve= :: a boolean.
+- every other parameter :: a string.
+
+A parameter that takes a name from a closed set lists the names as an =enum=:
+the node fields, the field lists, the computed fields, ="all"= and ="none"=, the
+settings =org-file-set-setting= writes, and the views, filters and ranges of
+=org-view=. The names you configure — field lists, computed fields, views,
+filters and ranges — are read when =org-records-mcp-enable= registers the
+tools, which is also when the =org-view= description is written. A name
+configured after that call is one the server accepts and a client checking the
+schema refuses, until =org-records-mcp-disable= and =org-records-mcp-enable=
+register the tools again and the client reconnects. A kind of name with
+nothing configured, such as filters in a setup that defines none, is published
+as a plain string.
+
+An optional parameter is published without =null=: leaving it out is how a
+call does without it. org-records-mcp still reads =null=, =false=, =""= and
+=[]= there as the parameter left out, for clients that fill every parameter.
+
 * When your client cannot send an array, an object or null
 
-org-records-mcp's tool schema types every parameter as a string. The schema is built
-from the Elisp handler's argument list, and =mcp-server-lib= gives every
-argument the type =string=, so there is no =array=, =object= or =null= in it
-to validate against.
-
-A client that checks its arguments against that schema therefore cannot send a
-JSON array for the parameters documented as taking one — =fields=,
-=properties= on =org-node-read=, =org-query= and =org-view=, =computed=,
-=files= and =tags=. It sends the array as its own
-JSON text instead, and org-records-mcp reads that text back as the array. The two
+Some clients send every argument as a string, whatever type the schema gives
+it. Such a client cannot send a JSON array for the parameters documented as
+taking one — =fields=, =properties= on =org-node-read=, =org-query= and
+=org-view=, =computed=, =files= and =tags=. It sends the array as its own JSON
+text instead, and org-records-mcp reads that text back as the array. The two
 calls below ask the same thing:
 
 #+begin_src json

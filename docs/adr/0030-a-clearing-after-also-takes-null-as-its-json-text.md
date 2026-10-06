@@ -8,8 +8,9 @@ JSON spells null in; `NULL`, `Null` and `" null"` are strings like any other,
 and meet the field's own refusal.
 
 The cause is the one ADR 0021 records for arrays and ADR 0029 for objects: the
-advertised schema types every parameter as `string`, so a client that validates
-its arguments against it cannot send null at all and sends the text instead.
+advertised schema publishes these four `after` parameters as a string or null
+(ADR 0034), and a client that sends every argument as a string, whatever the
+schema says, cannot send null at all and sends the text instead.
 Without this the text meets the field's own validator, which refuses it with a
 message naming null as the way to take the value away — the one value that
 client cannot produce. Null in an `after` is the removal ADR 0016 settles on, so
@@ -40,6 +41,5 @@ letters. A value inside a property map needs nothing: the map is sent as JSON
 text under ADR 0029, and null inside that text is already null. The
 `org-node-set-properties` map value `"null"` is therefore the property's text.
 
-When `mcp-server-lib` grows a per-parameter type, the schema can say that these
-four `after` parameters take a string or null, and this reading stays as the
-compatible path for clients already sending text.
+This reading is the compatible path for clients that send the text; a client
+that follows the schema sends null.

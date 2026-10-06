@@ -7,7 +7,7 @@
 ;; Maintainer: Stefan Lendl <s@stfl.dev>
 ;; Keywords: convenience, files, matching, outlines
 ;; Version: 0.11.0
-;; Package-Requires: ((emacs "30.1") (mcp-server-lib "0.4.0") (org-ql "0.9"))
+;; Package-Requires: ((emacs "30.1") (mcp-server-lib "0.5.0") (org-ql "0.9"))
 ;; Homepage: https://github.com/stfl/org-records-mcp
 
 ;; This file is NOT part of GNU Emacs.
@@ -464,9 +464,9 @@ down with it."
 
 (defun org-records-mcp--null-text-p (value)
   "Return non-nil when VALUE is the text a client sends for JSON null.
-The tool schema types every parameter as a string, so a client that
-validates its arguments against the schema cannot send null and
-sends the text null instead.  That text is exactly the four
+The tool schema says a clearing `after' takes a string or null, see
+`org-records-mcp--param-types', and a client that sends every argument
+as a string sends the text null for null.  That text is exactly the four
 lower-case letters JSON spells null in: padded or capitalised, it is
 a string like any other.  Only an `after' that takes null to take a
 value away asks this, see `org-records-mcp--value-to-write'; every other
@@ -482,11 +482,10 @@ priority character or a TODO keyword, so it passes through as the
 string it is and the field\\='s own validator refuses it, naming what
 the field does accept and the null that asks for none.
 
-The text null is nil too.  The tool schema types every parameter as a
-string, so a client that validates its arguments against the schema
-cannot send JSON null at all: it sends the text null instead, and
-without this would be refused by a message naming the one value it
-cannot produce.  `org-records-mcp--null-text-p' says what that text is.
+The text null is nil too.  A client that sends every argument as a
+string cannot send JSON null at all: it sends the text null instead,
+and without this would be refused by a message naming the one value
+it cannot produce.  `org-records-mcp--null-text-p' says what that text is.
 It is no timestamp and no priority character, so it
 takes away nothing a caller could have meant there.  A TODO keyword
 is the one field a file may spell null, so `org-node-set-todo' reads
@@ -1061,9 +1060,10 @@ line, and the tag set, which spells its empty value [], see
 
 (defun org-records-mcp--array-param (value what)
   "Return VALUE, a call's array parameter WHAT, as the array it names.
-The tool schema types every parameter as a string, so a client that
-validates its arguments against the schema cannot send a JSON array
-at all: it sends the array as its own JSON text instead.  A VALUE
+The tool schema publishes these parameters as arrays, see
+`org-records-mcp--param-types', but a client that sends every argument as
+a string cannot send a JSON array at all: it sends the array as its
+own JSON text instead.  A VALUE
 whose first non-blank character is a left bracket is read back here,
 decoding as mcp-server-lib decodes an array that arrived as one, so
 the call goes on as if it had.  Such text that is not a JSON array is
@@ -1079,9 +1079,9 @@ own check unchanged."
 
 (defun org-records-mcp--object-param (value what)
   "Return VALUE, a call's object parameter WHAT, as the object it names.
-The tool schema types every parameter as a string, so a client that
-validates its arguments against the schema cannot send a JSON object
-either: it sends the object as its own JSON text.  A VALUE whose
+A client that sends every argument as a string cannot send a JSON
+object either, whatever the tool schema says: it sends the object as
+its own JSON text.  A VALUE whose
 first non-blank character is a left brace is read back here, decoding
 as mcp-server-lib decodes an object that arrived as one, so the call
 goes on as if it had.  The text of an empty object decodes to nil, as
@@ -1141,8 +1141,8 @@ false to.  Any other VALUE is refused with an error naming NAME."
 A blank DEPTH, see `org-records-mcp--blank-param-p', is none: the call asks
 for no expansion and the node's children come back as references.
 A whole number is that many generations, and so is a string holding
-one, which is how a client following the tool schema sends every
-parameter.  Anything else is refused, since there is no such thing
+one, which is how a client that sends every argument as a string
+sends it.  Anything else is refused, since there is no such thing
 as a fraction of a generation or a walk of minus one."
   (let ((count
          (cond
@@ -7545,7 +7545,7 @@ MCP Parameters:
            read returns it, repeater and delay included (required)
            Example: \"<2026-06-20 Sat +1w -3d>\"
            Empty string asserts the heading has no SCHEDULED
-  after - ISO date string (required), naming a date that exists:
+  after - ISO date string or null (required), naming a date that exists:
           2026-02-30 and 2026-13-45 are refused rather than
           rolled over to another date
           Examples: \"2026-03-27\", \"2026-03-27 09:00\"
@@ -7585,7 +7585,7 @@ MCP Parameters:
            read returns it, repeater and delay included (required)
            Example: \"<2026-06-20 Sat +1w -3d>\"
            Empty string asserts the heading has no DEADLINE
-  after - ISO date string (required), naming a date that exists:
+  after - ISO date string or null (required), naming a date that exists:
           2026-02-30 and 2026-13-45 are refused rather than
           rolled over to another date
           Examples: \"2026-03-27\", \"2026-03-27 09:00\"
@@ -7925,7 +7925,7 @@ MCP Parameters:
   before - The priority character the heading carries now, without
            the [# ] around it (required)
            Empty string asserts the heading has no priority
-  after - Priority character (string, required)
+  after - Priority character (string or null, required)
           Must be within org-priority-highest to org-priority-lowest
           null takes the priority away, guarded by before; \"\"
           is no character and is refused, and false is the
@@ -9416,7 +9416,7 @@ Parameters:
            Send \"\" to assert that it has no TODO keyword
            Any other state is refused as a conflict and nothing is
            written; read the node again and re-plan
-  after - New TODO state to set (string, required)
+  after - New TODO state to set (string or null, required)
           Must be a valid keyword from org-todo-keywords
           null takes the keyword off, so the node stops being
           a task; \"\" is no keyword and is refused as one, and
@@ -9886,7 +9886,7 @@ Parameters:
            \"<2026-06-20 Sat +1w -3d>\" - not the ISO shorthand
            after takes
            Empty string asserts the node has no SCHEDULED
-  after - ISO date string (string, required), naming a date that
+  after - ISO date string (string or null, required), naming a date that
           exists: 2026-02-30 and 2026-13-45 are refused rather
           than rolled over to another date
           Examples: \"2026-03-27\", \"2026-03-27 09:00\"
@@ -9938,7 +9938,7 @@ Parameters:
            \"<2026-06-20 Sat +1w -3d>\" - not the ISO shorthand
            after takes
            Empty string asserts the node has no DEADLINE
-  after - ISO date string (string, required), naming a date that
+  after - ISO date string (string or null, required), naming a date that
           exists: 2026-02-30 and 2026-13-45 are refused rather
           than rolled over to another date
           Examples: \"2026-03-27\", \"2026-03-27 09:00\"
@@ -10117,7 +10117,7 @@ Parameters:
            (string, required)
            Just the letter, without the [# ] Org writes around it
            Empty string asserts the node has no priority
-  after - Priority character (string, required)
+  after - Priority character (string or null, required)
           Must be in the configured range (default \"A\" to \"C\")
           Use org-config-priority to check the valid range
           null takes the priority away, guarded by what before
@@ -10909,12 +10909,207 @@ Each element is a `mcp-server-lib-register-server' `:resources' spec,
 `(URI HANDLER :name STR [:description STR] [:mime-type STR])'.  The
 `{link}' in the URI makes it a resource template.")
 
+;;; Parameter types
+
+(defconst org-records-mcp--param-types
+  '((link . text)
+    (parent . text)
+    (previous_sibling . text)
+    (clock_out . text)
+    (title . text)
+    (todo . text)
+    (content . text)
+    (note . text)
+    (query . text)
+    (start_time . text)
+    (end_time . text)
+    (start . text)
+    (end . text)
+    (before . text)
+    (after . text)
+    (files . paths)
+    (tags . texts)
+    (fields . fields)
+    (properties . property-names)
+    (computed . computed)
+    (depth . count)
+    (resolve . flag)
+    (before_planning . planning-map)
+    (setting . setting)
+    (view . view)
+    (filter . filter)
+    (range . range))
+  "The JSON type each tool parameter is published with, by its name.
+Each entry is (PARAMETER . KIND), KIND one of the kinds
+`org-records-mcp--param-schema' turns into a JSON schema fragment.  A
+parameter means the same on every tool that takes it, except where
+`org-records-mcp--tool-param-types' names it for one tool: a `before'
+and an `after' are text unless the tool says otherwise.
+
+Every parameter is declared, a plain string as much as an array, so
+a handler parameter named in neither table is an error when
+`org-records-mcp-enable' registers the tools rather than a string
+published by default.  The readers of each kind still take the
+JSON text of an array or an object, and the text null in a clearing
+`after', from a client that sends every argument as a string; see
+`org-records-mcp--array-param'.")
+
+(defconst org-records-mcp--tool-param-types
+  '(("org-node-set-todo" (after . text-or-null))
+    ("org-node-set-scheduled" (after . text-or-null))
+    ("org-node-set-deadline" (after . text-or-null))
+    ("org-node-set-priority" (after . text-or-null))
+    ("org-node-set-properties"
+     (before . property-map)
+     (after . property-map))
+    ("org-node-create" (properties . property-map))
+    ("org-file-set-setting" (before . texts) (after . texts))
+    ("org-node-add-tags" (after . texts))
+    ("org-node-remove-tags" (after . texts))
+    ("org-node-set-tags" (before . texts) (after . texts)))
+  "The parameters one tool publishes with a type of its own.
+Each entry is (TOOL (PARAMETER . KIND)...), TOOL a tool id and KIND
+as in `org-records-mcp--param-types', which these entries override for
+that tool alone.")
+
+(defun org-records-mcp--schema-enum (names)
+  "Return NAMES, symbols or strings, as the vector of a JSON `enum'."
+  (vconcat (mapcar (lambda (name) (format "%s" name)) names)))
+
+(defun org-records-mcp--schema-string (names)
+  "Return the schema of a string that is one of NAMES.
+With no NAMES the string is any string: a set with nothing in it is
+nothing a client can be told to choose from."
+  (if names
+      `((type . "string")
+        (enum . ,(org-records-mcp--schema-enum names)))
+    '((type . "string"))))
+
+(defun org-records-mcp--schema-names (names groups)
+  "Return the schema of an array of NAMES, or of a string naming a group.
+NAMES are the strings the array may hold, any string when nil.
+GROUPS are the strings the parameter takes in place of an array, such
+as \"all\"; with none, the parameter takes the array alone."
+  (let ((array
+         `((type . "array")
+           (items . ,(org-records-mcp--schema-string names)))))
+    (if groups
+        `((anyOf . [,array ,(org-records-mcp--schema-string groups)]))
+      array)))
+
+(defun org-records-mcp--view-range-names ()
+  "Return every range a configured view takes, each once."
+  (seq-uniq
+   (mapcan
+    (lambda (entry)
+      (copy-sequence (org-records-mcp--view-ranges (cdr entry))))
+    org-records-mcp-views)))
+
+(defun org-records-mcp--param-schema (kind)
+  "Return the JSON schema fragment a parameter of KIND is published with.
+KIND is one of:
+  text           a string
+  text-or-null   a string, or null asking a field to hold nothing
+  texts          a string or an array of strings: one tag or line,
+                 or several
+  paths          an array of strings
+  count          a whole number, 0 or more
+  flag           true or false
+  fields         an array of node field names, or the name of a list
+                 in `org-records-mcp-node-field-lists'
+  property-names an array of property names, or \"all\" or \"none\"
+  computed       an array of the names `org-records-mcp-computed-fields'
+                 configures, or \"all\" or \"none\"
+  property-map   an object whose values are a string, a number, a
+                 boolean or null
+  planning-map   an object of the planning fields a call asserts
+  setting        one of `org-records-mcp--file-settings'
+  view           one of the views `org-records-mcp-views' configures
+  filter         one of the filters `org-records-mcp-filters' configures
+  range          one of the ranges a configured view takes
+
+A kind drawing its names from a setting reads the setting now, so
+the schema of a tool is that of the moment `org-records-mcp-enable'
+registers it."
+  (pcase-exhaustive kind
+    ('text '((type . "string")))
+    ('text-or-null '((type . ["string" "null"])))
+    ('texts '((type . ["string" "array"]) (items (type . "string"))))
+    ('paths '((type . "array") (items (type . "string"))))
+    ('count '((type . "integer") (minimum . 0)))
+    ('flag '((type . "boolean")))
+    ('fields
+     (org-records-mcp--schema-names
+      org-records-mcp--node-fields
+      (mapcar #'car org-records-mcp-node-field-lists)))
+    ('property-names
+     (org-records-mcp--schema-names nil '("all" "none")))
+    ('computed
+     (org-records-mcp--schema-names
+      (mapcar #'car org-records-mcp-computed-fields) '("all" "none")))
+    ('property-map
+     '((type . "object")
+       (additionalProperties
+        (type . ["string" "number" "boolean" "null"]))))
+    ('planning-map
+     `((type . "object")
+       (properties
+        .
+        ,(mapcar
+          (lambda (entry) (list (car entry) '(type . "string")))
+          (org-records-mcp--planning-asserted)))
+       (additionalProperties . :json-false)))
+    ('setting
+     (org-records-mcp--schema-string org-records-mcp--file-settings))
+    ('view
+     (org-records-mcp--schema-string
+      (mapcar #'car org-records-mcp-views)))
+    ('filter
+     (org-records-mcp--schema-string
+      (mapcar #'car org-records-mcp-filters)))
+    ('range
+     (org-records-mcp--schema-string
+      (org-records-mcp--view-range-names)))))
+
+(defun org-records-mcp--param-kind (tool parameter)
+  "Return the kind TOOL publishes its PARAMETER as, a symbol.
+See `org-records-mcp--param-types'.  A parameter neither table declares
+is an error naming TOOL and PARAMETER."
+  (or
+   (alist-get
+    parameter (cdr (assoc tool org-records-mcp--tool-param-types)))
+   (alist-get parameter org-records-mcp--param-types)
+   (error
+    "Tool %s takes %s, which org-records-mcp--param-types does not type"
+    tool parameter)))
+
+(defun org-records-mcp--typed-tool-spec (spec)
+  "Return SPEC, a `:tools' spec, with the JSON type of every parameter.
+The types go in `:param-schemas', one entry per parameter of the
+handler, so the published schema carries no type `mcp-server-lib'
+filled in by default."
+  (let ((tool (plist-get (cdr spec) :id)))
+    (append
+     spec
+     (list
+      :param-schemas
+      (mapcar
+       (lambda (parameter)
+         (cons
+          (symbol-name parameter)
+          (org-records-mcp--param-schema
+           (org-records-mcp--param-kind tool parameter))))
+       (remq '&optional (help-function-arglist (car spec) t)))))))
+
 (defun org-records-mcp-enable ()
   "Enable the org-records-mcp server.
 Registers every tool and the org:// resource template under
 `org-records-mcp--server-id'.  Whether org-view is among them depends on
 `org-records-mcp-views' at the time of the call, and its description carries
-the views and the filters configured then.
+the views and the filters configured then.  So does every tool\\='s
+schema: a parameter taking a configured name, such as a view, a
+filter, a range, a computed field or a field list, lists the names
+configured at the time of the call; see `org-records-mcp--param-schema'.
 
 Registrations are reference counted: a spec registered twice needs
 two `org-records-mcp-disable' calls before it goes, and the second
@@ -10923,10 +11118,12 @@ registration keeps the properties of the first."
    :id org-records-mcp--server-id
    :version org-records-mcp-version
    :tools
-   (append
-    org-records-mcp--core-tool-specs
-    (org-records-mcp--view-tool-specs)
-    org-records-mcp--clock-tool-specs)
+   (mapcar
+    #'org-records-mcp--typed-tool-spec
+    (append
+     org-records-mcp--core-tool-specs
+     (org-records-mcp--view-tool-specs)
+     org-records-mcp--clock-tool-specs))
    :resources org-records-mcp--resource-specs))
 
 

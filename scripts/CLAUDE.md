@@ -33,11 +33,12 @@ hundred places at once: silent when the installed mcp-server-lib is good,
 non-zero with the remedy when it is missing or older than the requirement. Keep
 it first in `run-tests.sh`; running it after the suite buys nothing.
 
-It probes a symbol that arrived in the required version — today
-`mcp-server-lib-server-registered-p`, which is 0.4.0. **Raising the floor in
-`Eask` obliges moving that probe to a symbol from the new version.** A probe
-left behind passes a copy that is too old, which then dies inside the ERT
-helpers, and the guard has moved the confusing failure rather than removed it.
+It probes what arrived in the required version — today a tool spec carrying
+`:param-schemas`, which is 0.5.0 and adds no public symbol, so the probe
+registers a throwaway server and drops it. **Raising the floor in `Eask`
+obliges moving that probe to what the new version adds.** A probe left behind
+passes a copy that is too old, which then dies inside the ERT helpers, and the
+guard has moved the confusing failure rather than removed it.
 
 Its commentary carries why the `require` is soft and why it stays inside the
 `cond`. Both are load-bearing; read it before restructuring the file.
