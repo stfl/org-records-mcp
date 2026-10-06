@@ -1,7 +1,7 @@
 ;; -*- mode: eask; lexical-binding: t -*-
 
 (package "org-records-mcp"
-         "0.11.0"
+         "0.12.0"
          "MCP server for Org-mode")
 
 (website-url "https://github.com/stfl/org-records-mcp")

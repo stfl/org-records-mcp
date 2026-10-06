@@ -6,7 +6,7 @@
 ;;         Stefan Lendl <s@stfl.dev>
 ;; Maintainer: Stefan Lendl <s@stfl.dev>
 ;; Keywords: convenience, files, matching, outlines
-;; Version: 0.11.0
+;; Version: 0.12.0
 ;; Package-Requires: ((emacs "30.1") (mcp-server-lib "0.5.0") (org-ql "0.9"))
 ;; Homepage: https://github.com/stfl/org-records-mcp
 
