@@ -580,8 +580,9 @@ held (see [[file:writing.org::*A file's own property drawer][A file's own proper
   [[file:links.org::*Addressing headings with links][Addressing headings with links]]), bare or bracketed, with or without a
   description. The link resolves, and is refused, exactly as it is in
   =org-node-read=, and a refusal carries the same message. A resource URI carries
-  no =files= parameter, so an =id:= link resolves only within the allowed
-  files; to reach an ID in another file, call =org-node-read= with =files= (see
+  no =files= parameter, so an =id:= link resolves through Emacs's ID index
+  alone, to a file the call may reach; to reach an ID in a file Emacs has not
+  indexed, call =org-node-read= with =files= (see
   [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]). It carries no =fields= or =depth= parameter
   either: a resource is picked from a client's UI, which has nowhere to say how
   much of the node it wants, so the resource always serves the default node,
@@ -864,7 +865,8 @@ Example response:
 - *Returns:* JSON object with:
   - =files=: array of absolute paths of the allowed Org files
   - =override_allowed=: whether =org-records-mcp-file-scope-override= permits a call
-    to name an Org file outside the allowed files
+    to name an Org file outside the allowed files, by a =file:= link, an entry
+    of =files=, or an =id:= link whose ID Emacs's ID index places there
   - =override_roots=: absolute paths of the directories under which a named
     Org file is permitted; present only when the setting is a list of
     directories.  When =override_allowed= is true and =override_roots= is

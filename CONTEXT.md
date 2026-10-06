@@ -14,7 +14,9 @@ _Avoid_: pre-defined files, whitelist, agenda files (when meaning the scope)
 
 **Scope override**:
 A single call reaching an Org file outside the allowed files by naming that
-file. It lasts for that call only; nothing carries over to the next call.
+file: as the file of a link, or in the files it lists. An ID link names the
+indexed file its ID is in. It lasts for that call only; nothing carries over
+to the next call.
 _Avoid_: file override, overwriting the scope, target file scope
 
 **Override policy**:

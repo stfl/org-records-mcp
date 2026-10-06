@@ -2775,6 +2775,25 @@ is DONE."
        (string= (org-records-mcp-test--read-file out)
                 org-records-mcp-test--scope-task-content)))))
 
+(ert-deftest org-records-mcp-test-scope-override-roots-refuses-id-through-symlink-out-of-root ()
+  "An ID the index places in a symlink out of every root is refused.
+The index names a symlink below the root whose target lies outside
+every root, so the `id:' link is refused by an error naming the link
+alone, and the target is left as it was."
+  (org-records-mcp-test--with-scope-dirs (list root)
+    (let ((out (org-records-mcp-test--write-file
+                outside "out.org"
+                org-records-mcp-test--scope-task-with-id-content))
+          (escape (expand-file-name "escape.org" root)))
+      (make-symbolic-link out escape)
+      (org-records-mcp-test--with-id-tracking
+          (list allowed)
+          `((,org-records-mcp-test--content-with-id-id . ,escape))
+        (org-records-mcp-test--assert-id-task-refused
+         out nil
+         (org-records-mcp-test--refused-path-regexp
+          org-records-mcp-test--scope-id-link))))))
+
 (ert-deftest org-records-mcp-test-scope-override-roots-resolves-symlinked-root ()
   "A root that is itself a symlink permits the files of its target."
   (let ((link-root
@@ -2969,22 +2988,41 @@ file stays reachable."
            "not in allowed list"))
         (should (null ops))))))
 
-(ert-deftest org-records-mcp-test-scope-override-bare-id-stays-in-allowed-files ()
-  "An `id:' link alone never takes the override; naming its file does."
+(ert-deftest org-records-mcp-test-scope-override-bare-id-takes-the-override ()
+  "An `id:' link alone takes the override for the file the index names.
+Under t, an ID the index places in an `.org' or an `.org_archive'
+file outside the allowed files reaches the heading the file's `file:'
+link reaches, with no `files' on the call.  One it places in a `.txt'
+or an encrypted `.org.gpg' file is refused, as a `file:' link to
+either is, by an error naming the link alone, and the file is left
+as it was."
   (org-records-mcp-test--with-scope-dirs t
-    (let ((out (org-records-mcp-test--write-file
-                outside "out.org"
-                org-records-mcp-test--scope-task-with-id-content)))
-      (org-records-mcp-test--with-id-tracking
-          (list allowed)
-          `((,org-records-mcp-test--content-with-id-id . ,out))
-        (org-records-mcp-test--call-tool-refused
-         "org-node-text" `((link . ,org-records-mcp-test--scope-id-link))
-         "not in allowed list")
-        (should
-         (string-prefix-p
-          "* TODO Task"
-          (org-records-mcp-test--call-read-headline (org-records-mcp-test--file-link out "*Task"))))))))
+    (pcase-dolist (`(,name . ,permitted)
+                   '(("out.org" . t)
+                     ("old.org_archive" . t)
+                     ("notes.txt" . nil)
+                     ("secret.org.gpg" . nil)))
+      (let ((file (org-records-mcp-test--write-file
+                   outside name
+                   org-records-mcp-test--scope-task-with-id-content)))
+        (org-records-mcp-test--with-id-tracking
+            (list allowed)
+            `((,org-records-mcp-test--content-with-id-id . ,file))
+          (if permitted
+              (should
+               (string=
+                (org-records-mcp-test--call-read-headline
+                 org-records-mcp-test--scope-id-link)
+                (org-records-mcp-test--call-read-headline
+                 (org-records-mcp-test--file-link file "*Task"))))
+            (org-records-mcp-test--call-tool-refused
+             "org-node-set-todo"
+             `((link . ,org-records-mcp-test--scope-id-link)
+               (before . "TODO")
+               (after . "DONE"))
+             (org-records-mcp-test--refused-path-regexp
+              org-records-mcp-test--scope-id-link)
+             file)))))))
 
 (ert-deftest org-records-mcp-test-allowed-files-directory-entry-does-not-widen ()
   "A directory among the allowed files makes no file under it reachable."
@@ -20215,8 +20253,8 @@ file, the buffer of the running clock, nor the running clock changes."
   "A `file:' link names its file, so the scope override applies to it.
 Under a root list, a `file:' link to a file below the root is readable
 and writable, and one to a file outside every root is refused.  An
-`id:' link names no file, so an ID in the file below the root stays
-out of reach until a `file:' link names that file."
+`id:' link takes the override for the file Emacs's ID index names, so
+an ID in a file below the root is readable and writable too."
   (org-records-mcp-test--with-scope-dirs (list root)
     (let ((in (org-records-mcp-test--write-file
                root "in.org" org-records-mcp-test--scope-task-content))
@@ -20252,20 +20290,7 @@ out of reach until a `file:' link names that file."
       (org-records-mcp-test--with-id-tracking
           (list allowed)
           `((,org-records-mcp-test--content-with-id-id . ,with-id))
-        (let ((link (format "id:%s" org-records-mcp-test--content-with-id-id)))
-          (org-records-mcp-test--call-tool-refused
-           "org-node-text" `((link . ,link)) "not in allowed list")
-          (org-records-mcp-test--call-tool-refused
-           "org-node-set-todo"
-           `((link . ,link) (before . "TODO") (after . "DONE"))
-           "not in allowed list"
-           with-id))
-        (should
-         (string=
-          (org-records-mcp-test--call-read-headline
-           (format "file:%s::*Task" with-id))
-          (string-trim-right
-           org-records-mcp-test--scope-task-with-id-content)))))))
+        (org-records-mcp-test--assert-id-task-permitted with-id nil)))))
 
 (ert-deftest org-records-mcp-test-link-remote-path-opens-no-connection ()
   "A link to a remote path is refused before any operation on the path.
@@ -20498,38 +20523,58 @@ file, once a file outside the allowed files."
 (ert-deftest org-records-mcp-test-link-id-indexed-remote-file-untouched ()
   "An ID the index places in a remote file is refused before TRAMP runs.
 The fake remote method records every file operation but
-`file-remote-p'; none may run.  The ID's `id:' link is refused, bare
-and with a search, by a read, a write and the resource, as outside the
-allowed files and without naming the file, even when the remote file
-is listed among them, and the calls run from a buffer visiting an
-allowed file."
+`file-remote-p'; none may run.  The index names the remote file
+directly, or a local symlink whose target is remote.  The ID's `id:'
+link is refused, bare and with a search, by a read, a write and the
+resource, as outside the allowed files and without naming the file,
+even when the remote file is listed among them, and the calls run
+from a buffer visiting an allowed file.  This holds under every
+override setting: nil, t, and a list of roots holding the local
+directory of the symlink and the remote file's directory."
   (org-records-mcp-test--with-temp-org-files
       ((test-file org-records-mcp-test--content-links))
-    (let ((remote (concat org-records-mcp-test--remote-prefix "/x/notes.org")))
-      (org-records-mcp-test--with-id-tracking
-          (list test-file remote)
-          `(("remote-id" . ,remote))
-        (let ((buf (find-file-noselect test-file)))
-          (unwind-protect
-              (with-current-buffer buf
-                (org-records-mcp-test--with-remote-probe ops
-                  (dolist (link '("id:remote-id" "[[id:remote-id::*Task]]"))
-                    (let ((refusal
-                           (concat
-                            "\\`'" (regexp-quote link)
-                            "': the referenced file not in allowed list\\'")))
-                      (org-records-mcp-test--call-tool-refused
-                       "org-node-text" `((link . ,link)) refusal)
-                      (org-records-mcp-test--call-tool-refused
-                       "org-node-set-tags" `((link . ,link) (before . []) (after . "work"))
-                       refusal test-file)
-                      (should
-                       (string-match-p
-                        refusal
-                        (org-records-mcp-test--resource-error
-                         (concat "org://" (url-hexify-string link)))))))
-                  (should (null ops))))
-            (kill-buffer buf)))))))
+    (let* ((remote-dir (concat org-records-mcp-test--remote-prefix "/x/"))
+           (remote (concat remote-dir "notes.org"))
+           (symlink
+            (expand-file-name
+             "remote-link.org" (file-name-directory test-file))))
+      (let ((file-name-handler-alist nil))
+        (make-symbolic-link remote symlink t))
+      (unwind-protect
+          (dolist (override
+                   (list nil t (list (file-name-directory test-file) remote-dir)))
+            (org-records-mcp-test--with-id-tracking
+                (list test-file remote)
+                `(("remote-id" . ,remote) ("symlink-id" . ,symlink))
+              (let ((org-records-mcp-file-scope-override override)
+                    (buf (find-file-noselect test-file)))
+                (unwind-protect
+                    (with-current-buffer buf
+                      (org-records-mcp-test--with-remote-probe ops
+                        (dolist (link
+                                 '("id:remote-id"
+                                   "[[id:remote-id::*Task]]"
+                                   "id:symlink-id"
+                                   "[[id:symlink-id::*Task]]"))
+                          (let ((refusal
+                                 (concat
+                                  "\\`'" (regexp-quote link)
+                                  "': the referenced file not in allowed list\\'")))
+                            (org-records-mcp-test--call-tool-refused
+                             "org-node-text" `((link . ,link)) refusal)
+                            (org-records-mcp-test--call-tool-refused
+                             "org-node-set-tags"
+                             `((link . ,link) (before . []) (after . "work"))
+                             refusal test-file)
+                            (should
+                             (string-match-p
+                              refusal
+                              (org-records-mcp-test--resource-error
+                               (concat "org://" (url-hexify-string link)))))))
+                        (should (null ops))))
+                  (kill-buffer buf)))))
+        (let ((file-name-handler-alist nil))
+          (delete-file symlink))))))
 
 (ert-deftest org-records-mcp-test-link-id-rescans-stale-index ()
   "An ID the index places in a file that lacks it is found by a rescan.
@@ -20564,6 +20609,189 @@ heading, a write changes that file alone, and the index then names it."
                   (gethash org-records-mcp-test--link-beta-id org-id-locations)
                   test-file)))
             (delete-file org-id-locations-file)))))))
+
+(ert-deftest org-records-mcp-test-link-id-rescan-reaches-what-the-override-permits ()
+  "A rescan's answer goes through the same gate as the index's first answer.
+The index places the ID in the allowed file, which lacks it.  The ID
+is in a file outside the allowed files that Org's rescan reads, as one
+of `org-id-extra-files'.  The miss rescans the index once, which then
+names that file, and the file is checked as a file the call names: it
+resolves under t and under a root holding it, and is refused under nil
+and for a file outside every root, by an error naming the link alone,
+with the file unchanged."
+  (let ((org-todo-keywords '((sequence "TODO" "|" "DONE"))))
+    (pcase-dolist (`(,kind ,under-root ,permitted)
+                   '((nil t nil) (roots t t) (roots nil nil) (t nil t)))
+      (org-records-mcp-test--with-scope-dirs (if (eq kind 'roots)
+                                         (list root)
+                                       kind)
+        (let ((file (org-records-mcp-test--write-file
+                     (if under-root
+                         root
+                       outside)
+                     "task.org" org-records-mcp-test--scope-task-with-id-content)))
+          (org-records-mcp-test--with-id-tracking
+              (list allowed)
+              `((,org-records-mcp-test--content-with-id-id . ,allowed))
+            (let ((org-agenda-files (list allowed))
+                  (org-id-extra-files (list file))
+                  (org-id-locations-file
+                   (make-temp-file "org-records-mcp-test-id-locations")))
+              (unwind-protect
+                  (progn
+                    (if permitted
+                        (org-records-mcp-test--assert-id-task-permitted file nil)
+                      (org-records-mcp-test--assert-id-task-refused
+                       file nil
+                       (org-records-mcp-test--refused-path-regexp
+                        org-records-mcp-test--scope-id-link)))
+                    (should
+                     (file-equal-p
+                      (gethash org-records-mcp-test--content-with-id-id
+                               org-id-locations)
+                      file))
+                    (should
+                     (string= (org-records-mcp-test--read-file allowed)
+                              "* Allowed\n")))
+                (delete-file org-id-locations-file)))))))))
+
+(defconst org-records-mcp-test--id-reach-content
+  (concat
+   "* TODO Note\n"
+   ":PROPERTIES:\n"
+   ":ID:       11111111-2222-3333-4444-555555555555\n"
+   ":END:\n"
+   "** First\n"
+   ":PROPERTIES:\n"
+   ":ID:       11111111-2222-3333-4444-666666666666\n"
+   ":END:\n"
+   "** TODO Moving\n"
+   ":PROPERTIES:\n"
+   ":ID:       11111111-2222-3333-4444-777777777777\n"
+   ":END:\n")
+  "A note outside the allowed files whose headings carry IDs.
+Note is a parent a node can be created or refiled under, First a
+sibling to insert after, and Moving a node to refile out.")
+
+(defun org-records-mcp-test--id-reach-link (last-digits)
+  "Return the `id:' link to the heading whose ID ends in LAST-DIGITS.
+The heading is one of `org-records-mcp-test--id-reach-content'."
+  (concat "id:11111111-2222-3333-4444-" last-digits))
+
+(ert-deftest org-records-mcp-test-link-id-takes-the-override-at-every-link-parameter ()
+  "Every link parameter resolves an `id:' link through the same gate.
+The note lies outside the allowed files, under a root, and its IDs
+are in the index.  Under that root, org-node-create's `parent' and
+`previous_sibling', and org-node-refile's `link' and `parent', each
+reach it by `id:' with no `files'.  Under nil, an `id:' `parent' of
+either tool is refused by an error naming the link, and neither file
+changes."
+  (let ((org-todo-keywords '((sequence "TODO" "|" "DONE"))))
+    (dolist (kind '(roots nil))
+      (org-records-mcp-test--with-scope-dirs (and (eq kind 'roots) (list root))
+        (let* ((note (org-records-mcp-test--write-file
+                      root "note.org" org-records-mcp-test--id-reach-content))
+               (inbox (org-records-mcp-test--write-file
+                       outside "inbox.org" "* TODO Inbox item\n"))
+               (org-records-mcp-allowed-files (list inbox))
+               (parent (org-records-mcp-test--id-reach-link "555555555555"))
+               (sibling (org-records-mcp-test--id-reach-link "666666666666"))
+               (moving (org-records-mcp-test--id-reach-link "777777777777"))
+               (item (org-records-mcp-test--file-link inbox "*Inbox item")))
+          (org-records-mcp-test--with-id-tracking
+              (list inbox)
+              (mapcar
+               (lambda (link) (cons (substring link 3) note))
+               (list parent sibling moving))
+            (if (eq kind 'nil)
+                (let ((refusal (org-records-mcp-test--refused-path-regexp parent)))
+                  (org-records-mcp-test--call-tool-refused
+                   "org-node-create"
+                   `((title . "Created") (todo . "TODO") (parent . ,parent))
+                   refusal note)
+                  (org-records-mcp-test--call-tool-refused
+                   "org-node-refile"
+                   `((link . ,item)
+                     (before . ,(org-records-mcp-test--verbs-digest item))
+                     (parent . ,parent))
+                   refusal inbox)
+                  (should
+                   (string= (org-records-mcp-test--read-file note)
+                            org-records-mcp-test--id-reach-content)))
+              (mcp-server-lib-ert-call-tool
+               "org-node-create"
+               `((title . "Created")
+                 (todo . "TODO")
+                 (parent . ,parent)
+                 (previous_sibling . ,sibling)))
+              (mcp-server-lib-ert-call-tool
+               "org-node-refile"
+               `((link . ,item)
+                 (before . ,(org-records-mcp-test--verbs-digest item))
+                 (parent . ,parent)))
+              (mcp-server-lib-ert-call-tool
+               "org-node-refile"
+               `((link . ,moving)
+                 (before . ,(org-records-mcp-test--verbs-digest moving))
+                 (parent . ,(concat "file:" inbox))))
+              (should
+               (string= (org-records-mcp-test--read-file inbox)
+                        (concat
+                         "* TODO Moving\n"
+                         ":PROPERTIES:\n"
+                         ":ID:       11111111-2222-3333-4444-777777777777\n"
+                         ":END:\n")))
+              (should
+               (string= (org-records-mcp-test--read-file note)
+                        (concat
+                         "* TODO Note\n"
+                         ":PROPERTIES:\n"
+                         ":ID:       11111111-2222-3333-4444-555555555555\n"
+                         ":END:\n"
+                         "** First\n"
+                         ":PROPERTIES:\n"
+                         ":ID:       11111111-2222-3333-4444-666666666666\n"
+                         ":END:\n"
+                         "** TODO Created\n"
+                         "** TODO Inbox item\n"))))))))))
+
+(ert-deftest org-records-mcp-test-link-id-override-leaves-views-on-allowed-files ()
+  "Following an `id:' link out of the allowed files never widens a search.
+Under t, a TODO heading in a file outside the allowed files is read
+and written by its `id:' link, which leaves a buffer visiting that
+file.  A view and an org-query naming no files still search the
+allowed files alone and never match it, and org-config-allowed-files
+reports the allowed files unchanged."
+  (org-records-mcp-test--with-scope-dirs-and-view t
+    (let* ((alpha (org-records-mcp-test--write-set-file root "alpha.org" "alpha"))
+           (out (org-records-mcp-test--write-file
+                 outside "out.org"
+                 org-records-mcp-test--scope-task-with-id-content))
+           (org-records-mcp-allowed-files (list alpha)))
+      (org-records-mcp-test--with-id-tracking
+          (list alpha)
+          `((,org-records-mcp-test--content-with-id-id . ,out))
+        (should
+         (string-prefix-p
+          "* TODO Task"
+          (org-records-mcp-test--call-read-headline
+           org-records-mcp-test--scope-id-link)))
+        (mcp-server-lib-ert-call-tool
+         "org-node-add-tags"
+         `((link . ,org-records-mcp-test--scope-id-link) (after . "seen")))
+        (should (find-buffer-visiting out))
+        (should (equal (org-records-mcp-test--view-scope-titles) '("alpha")))
+        (let ((result (org-records-mcp-test--call-ql-query "(todo)")))
+          (should (= (alist-get 'files_searched result) 1))
+          (should
+           (equal
+            (mapcar (lambda (match) (alist-get 'title match))
+                    (alist-get 'children result))
+            '("alpha"))))
+        (should
+         (equal
+          (alist-get 'files (org-records-mcp-test--call-get-allowed-files))
+          (vector alpha)))))))
 
 (defun org-records-mcp-test--fold-state ()
   "Return, for each line of the current buffer, whether it is hidden.
@@ -21119,13 +21347,15 @@ reachable."
              file (and named (vector file)))))))))
 
 (ert-deftest org-records-mcp-test-file-set-id-outside-allowed-files ()
-  "An ID outside the allowed files resolves only once the call names its file.
-The ID is in Emacs's index.  Without `files' it is refused under every
-override setting, by an error naming the link, not the file, and so is
-the org://{link} resource, which takes no `files'.  With
-`files' naming its file, it is refused under nil and for a file
-outside every root, by an error naming the file as the call sent it,
-and it resolves for a file under a root and under t."
+  "An ID outside the allowed files resolves wherever the override reaches it.
+The ID is in Emacs's index.  Whether the call names its file in
+`files' or leaves the index to name it, the ID is refused under nil
+and for a file outside every root, and resolves for a file under a
+root and under t: the file the index names is checked as a file the
+call names.  A refusal without `files' names the link, never the
+file; one with `files' names the file as the call sent it.  The
+org://{link} resource, which takes no `files', follows the index the
+same way."
   (pcase-dolist (`(,kind ,under-root ,permitted)
                  '((nil t nil) (roots t t) (roots nil nil) (t nil t)))
     (dolist (named '(nil t))
@@ -21136,26 +21366,33 @@ and it resolves for a file under a root and under t."
                      (if under-root
                          root
                        outside)
-                     "task.org" org-records-mcp-test--scope-task-with-id-content)))
+                     "task.org" org-records-mcp-test--scope-task-with-id-content))
+              (uri (concat "org://" org-records-mcp-test--scope-id-link)))
           (org-records-mcp-test--with-id-tracking
               (list allowed)
               `((,org-records-mcp-test--content-with-id-id . ,file))
             (cond
+             ((and permitted (not named))
+              (let ((node
+                     (json-read-from-string
+                      (org-records-mcp-test--read-resource uri))))
+                (should (equal (alist-get 'title node) "Task"))
+                (should
+                 (equal (alist-get 'link node)
+                        org-records-mcp-test--scope-id-link)))
+              (org-records-mcp-test--assert-id-task-permitted file nil))
+             (permitted
+              (org-records-mcp-test--assert-id-task-permitted file (vector file)))
              ((not named)
               (org-records-mcp-test--assert-id-task-refused
                file nil
                (org-records-mcp-test--refused-path-regexp
                 org-records-mcp-test--scope-id-link))
-              ;; A resource URI names no file set, so the resource
-              ;; refuses the ID under every setting.
               (should
                (string-match-p
                 (org-records-mcp-test--refused-path-regexp
                  org-records-mcp-test--scope-id-link)
-                (org-records-mcp-test--resource-error
-                 (concat "org://" org-records-mcp-test--scope-id-link)))))
-             (permitted
-              (org-records-mcp-test--assert-id-task-permitted file (vector file)))
+                (org-records-mcp-test--resource-error uri))))
              (t
               (org-records-mcp-test--assert-id-task-refused
                file (vector file)

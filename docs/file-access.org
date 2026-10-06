@@ -62,11 +62,12 @@ A call can name an Org file outside the allowed files by passing its path.
 The setting governs reading and writing alike.  The permission lasts for the
 one call that names the file; nothing carries over to later calls.
 A call names a file through a =file:= link (see
-[[file:links.org::*Addressing headings with links][Addressing headings with links]]) or a =files= parameter (see
-[[*Naming the file of an ID]] and [[*Querying other files]]).  An =id:= link
-names none, so without =files= it resolves only within the allowed files, and
-the file of the running clock is not named either, so the setting does not
-change what the clock tools reach.
+[[file:links.org::*Addressing headings with links][Addressing headings with links]]), a =files= parameter (see
+[[*Querying other files]]), or an =id:= link, which names the file Emacs's ID
+index places its ID in (see [[*Naming the file of an ID]]).  The file of the
+running clock is not named by a call, so a clock running outside the allowed
+files stays out of reach whatever the setting, and a view always runs over the
+allowed files alone.
 
 A named file outside the allowed files must also meet these conditions:
 
@@ -157,11 +158,27 @@ parameter.
 
 * Naming the file of an ID
 
-An =id:= link names no file, so org-records-mcp finds the ID through Emacs's ID index
-and reaches it only in the allowed files.  An ID in a file Emacs has not
-indexed is not found that way, and looking up an ID the index lacks makes
-org-records-mcp rescan the index, as Org does, reading every file Org knows, which can
-freeze Emacs for seconds.
+An =id:= link carries no path, so org-records-mcp finds the ID's file through
+Emacs's ID index, and checks that file as one the call names: it is reached
+when it is among the allowed files, and otherwise as far as
+=org-records-mcp-file-scope-override= permits (see
+[[*Configuring the scope override]]):
+
+- under =nil=, only in the allowed files;
+- under a list of directories, also in an Org file below one of them;
+- under =t=, in any local Org file.
+
+A file the setting does not permit is refused by an error that names the link,
+never the file, and a remote file the index names is refused before TRAMP can
+open a connection for it.  So when =org-records-mcp-file-scope-override= is
+=t=, or lists the directory your notes live in, an =id:= link from an agenda
+file into a note outside the agenda resolves with no =files= on the call,
+while the views keep to the allowed files.
+
+An ID in a file Emacs has not indexed is not found through the index, and
+looking up an ID the index lacks makes org-records-mcp rescan the index, as Org
+does, reading every file Org knows, which can freeze Emacs for seconds.  The
+file the rescan finds is checked like the one the index named first.
 
 Every tool that names a heading takes a =files= parameter for this: an array
 of absolute paths to Org files and directories.  With it, the ID of an =id:=
