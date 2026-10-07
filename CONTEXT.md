@@ -60,7 +60,23 @@ _Avoid_: path, outline path, ancestry
 A heading's log notes, the entries Org writes into its log drawer as a state
 changes, a date moves or a note is taken, read newest first. Each names its
 kind by the heading Org wrote it under. CLOCK lines are not entries.
-_Avoid_: logbook (which is the drawer, not its entries), history, notes
+_Avoid_: logbook (which is the drawer, not its entries), history (which is
+git's record of the subtree), notes
+
+**History**:
+The revisions that changed a heading's subtree, newest first, read from the git
+repository its file is committed in, each with the change as a diff of the
+subtree alone. It holds what the log does not record, such as an edit to the
+body or the title, and it is followed back by the heading's ID, else its custom
+ID, else its titles.
+_Avoid_: log (which is the notes Org writes into the heading), changelog,
+versions, timeline
+
+**Revision**:
+A commit that changed a heading's file, named by its hash. A history lists the
+revisions that changed the heading, and is current to the revision `HEAD` names
+when it was read.
+_Avoid_: version, snapshot, change (when meaning the commit)
 
 **Property**:
 A value from a node's own Org property drawer. It is part of the file, it

@@ -203,6 +203,20 @@ end the walk -- so raising it raises what one call may return."
   :type 'natnum
   :group 'org-records-mcp)
 
+(defcustom org-records-mcp-history-max-revisions 200
+  "The most revisions of a file one history of a heading reads.
+org-node-history reads the file as every commit in its window holds
+it, whether or not that commit changed the heading, and a window
+reaching far back on a file committed every few minutes reads far
+more of it than the caller meant to ask about.  A history whose
+window holds more revisions of the file than this is refused, naming
+the remedy, a later `since'.
+
+It is never trimmed to fit: a history silently cut short reads like
+one that is complete."
+  :type 'natnum
+  :group 'org-records-mcp)
+
 (defcustom org-records-mcp-clock-continuous-threshold 30
   "Max minutes since last clock-out for continuous clocking.
 When `org-clock-continuously' is non-nil and a new clock-in without
@@ -8564,6 +8578,931 @@ MCP Parameters:
                               #'org-records-mcp--read-file
                               files))
 
+;; History
+
+(defconst org-records-mcp--git-global-args
+  '("--no-optional-locks"
+    "--literal-pathspecs"
+    "-c"
+    "log.showSignature=false")
+  "The options every git command a history runs is given first.
+A history only reads, so git takes no optional lock, such as the one
+refreshing the index, that a commit running beside it could trip
+over.  A file name is a literal path, never a glob, and a user's
+setting that has `git log' verify signatures does not add lines to
+what is parsed.")
+
+(defconst org-records-mcp--git-repository-variables
+  '("GIT_ALTERNATE_OBJECT_DIRECTORIES"
+    "GIT_CONFIG"
+    "GIT_CONFIG_PARAMETERS"
+    "GIT_CONFIG_COUNT"
+    "GIT_OBJECT_DIRECTORY"
+    "GIT_DIR"
+    "GIT_WORK_TREE"
+    "GIT_IMPLICIT_WORK_TREE"
+    "GIT_GRAFT_FILE"
+    "GIT_INDEX_FILE"
+    "GIT_NO_REPLACE_OBJECTS"
+    "GIT_REPLACE_REF_BASE"
+    "GIT_PREFIX"
+    "GIT_SHALLOW_FILE"
+    "GIT_COMMON_DIR")
+  "The variables that point git at a repository, unset for every git a history runs.
+They are what `git rev-parse --local-env-vars' lists.  An Emacs
+started with one of them set, as from a git hook, would otherwise
+read the history of that repository rather than of the one the file
+is committed in.")
+
+(defun org-records-mcp--git (directory input &rest args)
+  "Run git with ARGS in DIRECTORY and return (STATUS . OUTPUT).
+INPUT, when non-nil, is a string git reads on its standard input.
+OUTPUT is git's standard output as bytes, a unibyte string; its
+standard error is discarded, since each caller says in its own words
+what a failure means.  ARGS are passed as a list, never through a
+shell, after `org-records-mcp--git-global-args'.  DIRECTORY is local:
+the file of a link has a local truename by the time it gets here,
+and git finds the repository from it alone, with
+`org-records-mcp--git-repository-variables' unset.  No git on
+`exec-path' is refused."
+  (let ((git
+         (or (executable-find "git")
+             (org-records-mcp--tool-validation-error
+              "No git on exec-path: org-node-history reads a file's \
+history from git"))))
+    (with-temp-buffer
+      (set-buffer-multibyte nil)
+      (let* ((default-directory (file-name-as-directory directory))
+             (process-environment
+              (append
+               org-records-mcp--git-repository-variables
+               process-environment))
+             (coding-system-for-read 'binary)
+             (coding-system-for-write 'binary)
+             (args (append org-records-mcp--git-global-args args))
+             (status
+              (if input
+                  (apply #'call-process-region
+                         input
+                         nil
+                         git
+                         nil
+                         '(t nil)
+                         nil
+                         args)
+                (apply #'call-process git nil '(t nil) nil args))))
+        (cons status (buffer-string))))))
+
+(defun org-records-mcp--git-line (directory &rest args)
+  "Return the first line git ARGS print in DIRECTORY, or nil when git fails."
+  (let ((result (apply #'org-records-mcp--git directory nil args)))
+    (and (eql (car result) 0)
+         (car (split-string (cdr result) "\n" t)))))
+
+(defun org-records-mcp--history-since-given (since)
+  "Return SINCE, a call's `since' parameter, as the bound it names.
+The value is (commit . HASH), HASH a commit's hash as the call wrote
+it in lower case, or (time . TIME), TIME an Emacs time.  A hash is 7
+to 64 hexadecimal digits, which is every abbreviation git prints and
+every full hash, SHA-1 or SHA-256.  A time is an ISO date or local
+time, as the clock tools take one, see
+`org-records-mcp--clock-parse-timestamp', or an Org timestamp, active
+or inactive, whose day name is not read.  Anything else is refused,
+naming the forms; so is a blank SINCE, as the required parameter it
+is."
+  (let ((since
+         (string-trim
+          (org-records-mcp--text-param-given since "since"))))
+    (cond
+     ((string-empty-p since)
+      (org-records-mcp--missing-param-error "since"))
+     ((let ((case-fold-search t))
+        (string-match-p "\\`[0-9a-f]\\{7,64\\}\\'" since))
+      (cons 'commit (downcase since)))
+     ((string-match
+       (concat
+        "\\`[[<]\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\)"
+        "\\(?: +[^]>[:digit:][:space:]]+\\)?"
+        "\\(?: +\\([0-9]\\{1,2\\}\\):\\([0-9]\\{2\\}\\)\\)? *[]>]\\'")
+       since)
+      (cons
+       'time
+       (org-records-mcp--clock-parse-timestamp
+        (concat
+         (match-string 1 since)
+         (when (match-string 2 since)
+           (format " %02d:%s"
+                   (string-to-number (match-string 2 since))
+                   (match-string 3 since)))))))
+     ((string-match-p "\\`[0-9]\\{4\\}-" since)
+      (cons 'time (org-records-mcp--clock-parse-timestamp since)))
+     (t
+      (org-records-mcp--tool-validation-error
+       "Not a commit or a time: '%s'.  since takes a commit hash, \
+such as the current of an earlier answer, an ISO time such as \
+2026-10-07T16:00, or an Org timestamp such as [2026-10-07 Wed 16:00]"
+       since)))))
+
+(defun org-records-mcp--history-limit-given (limit)
+  "Return LIMIT, a call's `limit' parameter, as a count, or nil for none.
+A blank LIMIT, see `org-records-mcp--blank-param-p', and 0 ask for no
+cap.  A whole number is that many revisions, and so is a string
+holding one, which is how a client that sends every argument as a
+string sends it.  Anything else is refused."
+  (let ((count
+         (cond
+          ((org-records-mcp--blank-param-p limit)
+           0)
+          ((integerp limit)
+           limit)
+          ((and (stringp limit) (string-match-p "\\`[0-9]+\\'" limit))
+           (string-to-number limit)))))
+    (unless (and count (>= count 0))
+      (org-records-mcp--tool-validation-error
+       "limit must be a whole number of revisions, not: %s"
+       (org-records-mcp--json-name limit)))
+    (and (> count 0) count)))
+
+(defun org-records-mcp--history-outline-path ()
+  "Return the titles from the heading at point's outermost ancestor down.
+The last title is the heading's own; each is the one
+`org-records-mcp--title-at-point' reads.  Point does not move."
+  (save-excursion
+    (org-back-to-heading t)
+    (let ((path (list (org-records-mcp--title-at-point))))
+      (while (org-up-heading-safe)
+        (push (org-records-mcp--title-at-point) path))
+      path)))
+
+(defun org-records-mcp--history-heading-at-point ()
+  "Return the heading at point as a history follows it, a plist.
+`:text' is its subtree as org-node-text reads it, `:path' its outline
+path, see `org-records-mcp--history-outline-path', and `:id' and
+`:custom-id' its own ID and CUSTOM_ID, nil when it carries none.
+Neither is inherited, whatever `org-use-property-inheritance' says:
+an ancestor's ID names the ancestor."
+  (list
+   :text (org-records-mcp--node-text-at-point)
+   :path (org-records-mcp--history-outline-path)
+   :id (org-entry-get nil "ID")
+   :custom-id (org-entry-get nil "CUSTOM_ID")))
+
+(defun org-records-mcp--history-repository (file)
+  "Return the git repository FILE is committed in, as a plist.
+`:directory' is the directory of FILE's truename, which every git
+command runs in, `:name' the file's name there, which a path and an
+object name are given relative to, `:root' the repository's top
+directory, `:path' the file's path below it, as git names the files a
+commit changed, and `:head' the commit HEAD names.  A FILE in no
+repository, or in one with no commit, is refused."
+  (let* ((truename (file-truename file))
+         (directory (file-name-directory truename))
+         (name (file-name-nondirectory truename))
+         (result
+          (org-records-mcp--git directory nil
+                                "rev-parse"
+                                "--show-toplevel"
+                                "--show-prefix"))
+         (lines
+          (split-string (decode-coding-string (cdr result) 'utf-8)
+                        "\n")))
+    (unless (eql (car result) 0)
+      (org-records-mcp--tool-validation-error
+       "Not in a git repository: %s.  org-node-history reads a \
+file's history from the git repository it is committed in"
+       file))
+    (list
+     :directory directory
+     :name name
+     :root (file-name-as-directory (nth 0 lines))
+     :path (concat (nth 1 lines) name)
+     :head
+     (or (org-records-mcp--git-line directory
+                                    "rev-parse"
+                                    "--verify"
+                                    "--quiet"
+                                    "HEAD^{commit}")
+         (org-records-mcp--tool-validation-error
+          "The git repository %s is in has no commit"
+          file)))))
+
+(defun org-records-mcp--history-object (commit repository)
+  "Return the object name of REPOSITORY's file as COMMIT holds it."
+  (concat commit ":./" (plist-get repository :name)))
+
+(defun org-records-mcp--history-window (repository since file sent)
+  "Return the revisions of REPOSITORY's file after SINCE, newest first.
+SINCE is what `org-records-mcp--history-since-given' returns, and FILE
+the file as the call reaches it and SENT the `since' the call sent,
+for a refusal to name.  The value is
+\(REVISIONS . BASE): REVISIONS a list of (COMMIT . TIME), one for each
+commit on HEAD's first-parent line that changed the file, TIME the
+committer time in seconds; BASE the object name of the file as it
+stood before the oldest of them, or nil when there are none.
+
+A time SINCE takes the commits committed at it or later, and BASE is
+the file at the first parent of the oldest.  A commit SINCE takes the
+commits after it, and BASE is the file at that commit: a commit HEAD
+does not descend from is refused, since the commits after it are no
+line of history.  The first-parent line makes consecutive revisions
+each other's parent as far as the file goes, whatever merges the
+history holds.  A window of more than
+`org-records-mcp-history-max-revisions' revisions is refused."
+  (let* ((directory (plist-get repository :directory))
+         (max org-records-mcp-history-max-revisions)
+         (commit
+          (when (eq (car since) 'commit)
+            (let ((full
+                   (or (org-records-mcp--git-line directory
+                                                  "rev-parse"
+                                                  "--verify"
+                                                  "--quiet"
+                                                  (concat
+                                                   (cdr since)
+                                                   "^{commit}"))
+                       (org-records-mcp--tool-validation-error
+                        "No commit %s in the git repository %s is in"
+                        sent file))))
+              (unless (eql
+                       (car
+                        (org-records-mcp--git directory nil
+                                              "merge-base"
+                                              "--is-ancestor"
+                                              full
+                                              "HEAD"))
+                       0)
+                (org-records-mcp--tool-validation-error
+                 "HEAD does not descend from commit %s: send a \
+commit on the current branch, or a time"
+                 sent))
+              full)))
+         (result
+          (apply #'org-records-mcp--git
+                 directory
+                 nil
+                 "log"
+                 "--first-parent"
+                 "--format=%H %ct"
+                 "-n"
+                 (number-to-string (1+ max))
+                 (append
+                  (if commit
+                      (list (concat commit "..HEAD"))
+                    (list
+                     (format-time-string
+                      "--since=%Y-%m-%d %H:%M:%S %z"
+                      (cdr since))
+                     "HEAD"))
+                  (list "--" (plist-get repository :name)))))
+         (revisions
+          (mapcar
+           (lambda (line)
+             (let ((fields (split-string line " ")))
+               (cons
+                (nth 0 fields) (string-to-number (nth 1 fields)))))
+           (split-string (cdr result) "\n" t))))
+    (unless (eql (car result) 0)
+      (org-records-mcp--tool-validation-error
+       "git could not read the history of %s"
+       file))
+    (when (> (length revisions) max)
+      (org-records-mcp--tool-validation-error
+       "Too many revisions of %s: more than %d since %s.  Send a later \
+since.  org-records-mcp-history-max-revisions sets the ceiling"
+       file max sent))
+    (cons
+     revisions
+     (when revisions
+       (org-records-mcp--history-object
+        (or commit
+            (concat (car (car (last revisions))) "^"))
+        repository)))))
+
+(defun org-records-mcp--history-texts (repository objects coding)
+  "Return the text of each of OBJECTS in REPOSITORY, nil for a missing one.
+OBJECTS are object names, as `org-records-mcp--history-object' makes
+them.  One `git cat-file --batch' reads them all, and each blob is
+decoded with CODING, the coding system Emacs reads the file with."
+  (let ((result
+         (org-records-mcp--git (plist-get repository :directory)
+                               (mapconcat (lambda (object)
+                                            (concat object "\n"))
+                                          objects
+                                          "")
+                               "cat-file" "--batch"))
+        (texts nil))
+    (with-temp-buffer
+      (set-buffer-multibyte nil)
+      (insert (cdr result))
+      (goto-char (point-min))
+      (dolist (_ objects)
+        (let ((line (buffer-substring (point) (line-end-position))))
+          (forward-line 1)
+          (if (string-match "\\`[0-9a-f]+ blob \\([0-9]+\\)\\'" line)
+              (let* ((start (point))
+                     (end
+                      (+ start
+                         (string-to-number (match-string 1 line)))))
+                (push (decode-coding-string
+                       (buffer-substring start end) coding)
+                      texts)
+                ;; The blob is followed by a newline of git's own.
+                (goto-char (1+ end)))
+            (push nil texts)))))
+    (nreverse texts)))
+
+(defun org-records-mcp--history-headings ()
+  "Return every heading in the current buffer as (BEGIN . PATH), in order.
+PATH is the heading's outline path, its titles as
+`org-records-mcp--title-at-point' reads them.  Org's parser finds the
+headings and nests them; the titles of the headings above one are
+those of the headings it was nested in."
+  (let (enclosing
+        headings)
+    (org-element-map
+     (org-element-parse-buffer 'headline) 'headline
+     (lambda (headline)
+       (let ((level (org-element-property :level headline))
+             (begin (org-element-property :begin headline)))
+         (while (and enclosing (>= (car (car enclosing)) level))
+           (pop enclosing))
+         (push (cons
+                level
+                (save-excursion
+                  (goto-char begin)
+                  (org-records-mcp--title-at-point)))
+               enclosing)
+         (push
+          (cons begin (reverse (mapcar #'cdr enclosing))) headings))))
+    (nreverse headings)))
+
+(defun org-records-mcp--history-paths-equal-p (a b)
+  "Return non-nil when outline paths A and B name the same headings."
+  (and (= (length a) (length b))
+       (cl-every #'org-records-mcp--titles-equal-p a b)))
+
+(defun org-records-mcp--history-paths-in (text)
+  "Return the outline path of every heading in file TEXT.
+The current buffer is the scratch buffer of
+`org-records-mcp--with-history-scratch', so TEXT is read with the
+grammar it reads every revision with.  What the buffer held is put
+back, so a position found in it before stays good after."
+  (let ((held (buffer-string)))
+    (erase-buffer)
+    (insert text)
+    (prog1 (mapcar #'cdr (org-records-mcp--history-headings))
+      (erase-buffer)
+      (insert held))))
+
+(defun org-records-mcp--history-find-by-path (path seen-in)
+  "Return where the heading at outline PATH begins, or nil.
+The first heading whose outline path is PATH is the one, as the first
+heading of a title is the one a `::*title' link reaches.  When none
+is, a heading is found by its own title alone, if exactly one heading
+in the buffer carries it: that follows a heading moved under another
+parent, or one whose parent was renamed.
+
+SEEN-IN is the file text the heading was last found in.  A heading
+found by its title alone whose outline path SEEN-IN still holds is
+another heading, standing where it stood, and nil is returned: a
+heading written beside one of the same title did not move there."
+  (let ((headings (org-records-mcp--history-headings)))
+    (or (car
+         (cl-find-if
+          (lambda (heading)
+            (org-records-mcp--history-paths-equal-p
+             (cdr heading) path))
+          headings))
+        (let ((titled
+               (cl-remove-if-not
+                (lambda (heading)
+                  (org-records-mcp--titles-equal-p
+                   (car (last (cdr heading))) (car (last path))))
+                headings)))
+          (and titled
+               (null (cdr titled))
+               (not
+                (cl-find
+                 (cdr (car titled))
+                 (org-records-mcp--history-paths-in seen-in)
+                 :test #'org-records-mcp--history-paths-equal-p))
+               (car (car titled)))))))
+
+(defun org-records-mcp--history-find (identity seen-in)
+  "Return where the heading IDENTITY names begins in the current buffer.
+IDENTITY is a plist as `org-records-mcp--history-heading-at-point'
+returns one, and SEEN-IN the file text it was found in.  The heading
+is found by its ID, else by its CUSTOM_ID, else by its outline path,
+see `org-records-mcp--history-find-by-path'.  A heading found by its path
+whose own ID or CUSTOM_ID differs from one IDENTITY carries is
+another heading, and nil is returned: an identifier names one heading
+for as long as it is there.  Nil also when nothing matches."
+  (let ((id (plist-get identity :id))
+        (custom-id (plist-get identity :custom-id)))
+    (or (and id (org-find-entry-with-id id))
+        (and custom-id (org-find-property "CUSTOM_ID" custom-id))
+        (when-let* ((begin
+                     (org-records-mcp--history-find-by-path
+                      (plist-get identity :path) seen-in)))
+          (save-excursion
+            (goto-char begin)
+            (cl-flet ((agrees
+                       (ours property)
+                       (let ((theirs (org-entry-get nil property)))
+                         (or (null ours)
+                             (null theirs)
+                             (string= ours theirs)))))
+              (and (agrees id "ID")
+                   (agrees custom-id "CUSTOM_ID")
+                   begin)))))))
+
+(defun org-records-mcp--history-locate (text identity)
+  "Return the heading IDENTITY names in file TEXT, or nil.
+IDENTITY is a heading as this returns one, or as
+`org-records-mcp--history-heading-at-point' does with `:file-text'
+added, the text of the file it was found in.  The current buffer is
+the scratch buffer of `org-records-mcp--with-history-scratch'; TEXT
+replaces its content.  The heading is returned with `:file-text'
+TEXT, and nil when TEXT is nil, a revision without the file, or
+holds no such heading."
+  (when text
+    (erase-buffer)
+    (insert text)
+    (goto-char (point-min))
+    (when-let* ((begin
+                 (org-records-mcp--history-find
+                  identity (plist-get identity :file-text))))
+      (goto-char begin)
+      (append
+       (org-records-mcp--history-heading-at-point)
+       (list :file-text text)))))
+
+(defmacro org-records-mcp--with-history-scratch (grammar &rest body)
+  "Run BODY in an Org buffer of its own that reads with GRAMMAR.
+GRAMMAR is the setting lines `org-records-mcp--headline-grammar-settings'
+returns for the file whose history is read, so every revision is read
+with the keywords and priorities the file has now, and no revision's
+`#+SETUPFILE:' is fetched.  The mode's hooks and startup options do
+not run, and the element cache is off, since each revision replaces
+the whole buffer."
+  (declare (indent 1) (debug (form body)))
+  `(with-temp-buffer
+     (let ((org-inhibit-startup t))
+       (delay-mode-hooks
+         (org-mode)))
+     (setq-local org-element-use-cache nil)
+     (insert ,grammar)
+     (org-set-regexps-and-options)
+     ,@body))
+
+(defun org-records-mcp--history-edits (old new)
+  "Return the edits turning the list of lines OLD into NEW.
+Each edit is (OP . LINE), OP one of the characters ?\\s, ?- and ?+
+that start a line of a unified diff, in order.  The lines both share
+at the start and at the end are kept as they are, and a longest
+common subsequence of the rest decides what is kept between.
+
+Emacs has no diff of its own to call: `diff' runs a program over
+files, which a history does not write.  When the lines between are
+too many to compare in reasonable space, every one of them is taken
+out and put back rather than compared."
+  (let* ((a (vconcat old))
+         (b (vconcat new))
+         (n (length a))
+         (m (length b))
+         (head 0)
+         (tail 0))
+    (while (and (< head n)
+                (< head m)
+                (equal (aref a head) (aref b head)))
+      (cl-incf head))
+    (while (and (< tail (- n head))
+                (< tail (- m head))
+                (equal (aref a (- n tail 1)) (aref b (- m tail 1))))
+      (cl-incf tail))
+    (let* ((rows (- n head tail))
+           (columns (- m head tail))
+           (width (1+ columns))
+           (edits nil))
+      (dotimes (i head)
+        (push (cons ?\s (aref a i)) edits))
+      (if (> (* rows columns) 4000000)
+          (progn
+            (dotimes (i rows)
+              (push (cons ?- (aref a (+ head i))) edits))
+            (dotimes (j columns)
+              (push (cons ?+ (aref b (+ head j))) edits)))
+        ;; LENGTHS at (I, J) is the length of the longest common
+        ;; subsequence of what follows line I of the old middle and
+        ;; line J of the new one.
+        (let ((lengths (make-vector (* (1+ rows) width) 0))
+              (i 0)
+              (j 0))
+          (cl-loop
+           for row from (1- rows) downto 0 do
+           (cl-loop
+            for column from (1- columns) downto 0 do
+            (aset
+             lengths (+ (* row width) column)
+             (if (equal
+                  (aref a (+ head row)) (aref b (+ head column)))
+                 (1+ (aref
+                      lengths (+ (* (1+ row) width) (1+ column))))
+               (max (aref lengths (+ (* (1+ row) width) column))
+                    (aref lengths (+ (* row width) (1+ column))))))))
+          (while (or (< i rows) (< j columns))
+            (cond
+             ((and (< i rows)
+                   (< j columns)
+                   (equal (aref a (+ head i)) (aref b (+ head j))))
+              (push (cons ?\s (aref a (+ head i))) edits)
+              (cl-incf i)
+              (cl-incf j))
+             ((and (< i rows)
+                   (or (= j columns)
+                       (>= (aref lengths (+ (* (1+ i) width) j))
+                           (aref lengths (+ (* i width) (1+ j))))))
+              (push (cons ?- (aref a (+ head i))) edits)
+              (cl-incf i))
+             (t
+              (push (cons ?+ (aref b (+ head j))) edits)
+              (cl-incf j))))))
+      (dotimes (i tail)
+        (push (cons ?\s (aref a (+ (- n tail) i))) edits))
+      (nreverse edits))))
+
+(defconst org-records-mcp--history-context 3
+  "The lines of context around each change in a history's diff.
+Three is what `diff -u' and `git diff' show.")
+
+(defun org-records-mcp--history-diff (old new)
+  "Return the unified diff from text OLD to text NEW, or nil when equal.
+Either may be nil, for a heading that is not there.  The diff is
+hunks alone, each under its `@@ -L,S +L,S @@' line, with
+`org-records-mcp--history-context' lines of context, and its lines are
+joined by newlines with none after the last.  A range of one line is
+written by its line alone, and an empty one by the line before it,
+as `diff -u' writes them."
+  (let* ((edits
+          (vconcat
+           (org-records-mcp--history-edits
+            (and old (split-string old "\n"))
+            (and new (split-string new "\n")))))
+         (count (length edits))
+         (old-before (make-vector (1+ count) 0))
+         (new-before (make-vector (1+ count) 0))
+         (changes nil)
+         (hunks nil))
+    (dotimes (k count)
+      (let ((op (car (aref edits k))))
+        (aset
+         old-before (1+ k)
+         (+ (aref old-before k)
+            (if (eq op ?+)
+                0
+              1)))
+        (aset
+         new-before (1+ k)
+         (+ (aref new-before k)
+            (if (eq op ?-)
+                0
+              1)))
+        (unless (eq op ?\s)
+          (push k changes))))
+    (setq changes (nreverse changes))
+    (cl-flet ((range
+               (before size)
+               (cond
+                ((= size 1)
+                 (format "%d" (1+ before)))
+                ((= size 0)
+                 (format "%d,0" before))
+                (t
+                 (format "%d,%d" (1+ before) size)))))
+      (while changes
+        (let* ((start
+                (max 0
+                     (- (car changes)
+                        org-records-mcp--history-context)))
+               (end
+                (min count
+                     (+ (car changes) 1
+                        org-records-mcp--history-context))))
+          (setq changes (cdr changes))
+          (while (and changes
+                      (<= (- (car changes)
+                             org-records-mcp--history-context)
+                          end))
+            (setq end
+                  (min count
+                       (+ (car changes) 1
+                          org-records-mcp--history-context)))
+            (setq changes (cdr changes)))
+          (push (concat
+                 (format "@@ -%s +%s @@"
+                         (range
+                          (aref old-before start)
+                          (- (aref old-before end)
+                             (aref old-before start)))
+                         (range
+                          (aref new-before start)
+                          (- (aref new-before end)
+                             (aref new-before start))))
+                 (mapconcat (lambda (k)
+                              (let ((edit (aref edits k)))
+                                (concat
+                                 "\n"
+                                 (string (car edit))
+                                 (cdr edit))))
+                            (number-sequence start (1- end))
+                            ""))
+                hunks))))
+    (and hunks (string-join (nreverse hunks) "\n"))))
+
+(defun org-records-mcp--history-path-text (path)
+  "Return outline PATH, a list of titles, as a note names it."
+  (if path
+      (string-join path " / ")
+    "the top level"))
+
+(defun org-records-mcp--history-change (older newer)
+  "Return what changed from OLDER to NEWER, or nil when nothing did.
+Each is a heading as `org-records-mcp--history-locate' returns one, or
+nil where the revision has none.  The value is an alist of `note',
+present when the heading appears, disappears or moves to another
+parent, and `diff', present when its subtree's text changed."
+  (let* ((diff
+          (org-records-mcp--history-diff
+           (plist-get older :text) (plist-get newer :text)))
+         (older-parent (butlast (plist-get older :path)))
+         (newer-parent (butlast (plist-get newer :path)))
+         (note
+          (cond
+           ((and newer (not older))
+            "appears")
+           ((and older (not newer))
+            "disappears")
+           ((and older
+                 newer
+                 (not
+                  (org-records-mcp--history-paths-equal-p
+                   older-parent newer-parent)))
+            (format "moves from %s to %s"
+                    (org-records-mcp--history-path-text older-parent)
+                    (org-records-mcp--history-path-text
+                     newer-parent))))))
+    (when (or note diff)
+      `(,@
+        (when note
+          `((note . ,note)))
+        ,@
+        (when diff
+          `((diff . ,diff)))))))
+
+(defun org-records-mcp--history-holds-p (text heading)
+  "Return non-nil when file TEXT holds a heading with HEADING's ID or CUSTOM_ID.
+HEADING is a plist as `org-records-mcp--history-locate' returns one.
+TEXT replaces the content of the current buffer, the scratch buffer
+of `org-records-mcp--with-history-scratch'."
+  (when text
+    (erase-buffer)
+    (insert text)
+    (let ((id (plist-get heading :id))
+          (custom-id (plist-get heading :custom-id)))
+      (or (and id (org-find-entry-with-id id))
+          (and custom-id
+               (org-find-property "CUSTOM_ID" custom-id))))))
+
+(defun org-records-mcp--history-elsewhere
+    (repository commit heading arrived)
+  "Return the other file HEADING moved between at COMMIT, or nil.
+REPOSITORY is the file's, and HEADING, as
+`org-records-mcp--history-locate' returns one, appears in the file at
+COMMIT when ARRIVED is non-nil and disappears from it otherwise.  The
+other file is one of the Org files COMMIT changed that held HEADING's
+ID or CUSTOM_ID before COMMIT and not after, when it arrived, or after
+and not before, when it left: one commit took the heading out of one
+file and wrote it into the other.  A heading carrying neither
+identifier is not looked for, and a root commit changed no file from
+another.
+
+The file is returned as the path the call may reach it by, through
+`org-records-mcp--find-allowed-file' as a file the call names, and nil
+is returned for one the call may not reach, so a history names no
+file a read would refuse.  The current buffer is the scratch buffer
+of `org-records-mcp--with-history-scratch'."
+  (when (or (plist-get heading :id) (plist-get heading :custom-id))
+    (let* ((result
+            (org-records-mcp--git (plist-get
+                                   repository
+                                   :directory)
+                                  nil
+                                  "diff-tree"
+                                  "-r"
+                                  "-z"
+                                  "--name-only"
+                                  (concat commit "^")
+                                  commit))
+           (paths
+            (and (eql (car result) 0)
+                 (seq-filter
+                  (lambda (path)
+                    (and
+                     (org-records-mcp--org-file-name-p path)
+                     (not
+                      (string= path (plist-get repository :path)))))
+                  (split-string (decode-coding-string
+                                 (cdr result) 'utf-8)
+                                "\0" t))))
+           (texts
+            (and paths
+                 (org-records-mcp--history-texts
+                  repository
+                  (mapcan
+                   (lambda (path)
+                     (list
+                      (concat commit "^:" path)
+                      (concat commit ":" path)))
+                   paths)
+                  'utf-8))))
+      (cl-loop
+       for path in paths for (before after) on texts by #'cddr when
+       (and (if arrived
+                (org-records-mcp--history-holds-p before heading)
+              (org-records-mcp--history-holds-p after heading))
+            (not
+             (if arrived
+                 (org-records-mcp--history-holds-p after heading)
+               (org-records-mcp--history-holds-p before heading))))
+       return
+       (org-records-mcp--find-allowed-file (expand-file-name
+                                            path
+                                            (plist-get
+                                             repository
+                                             :root))
+                                           t)))))
+
+(defun org-records-mcp--history-revisions
+    (revisions texts newest identity limit repository)
+  "Return the revisions that changed a heading, newest first.
+REVISIONS are (COMMIT . TIME) pairs, newest first, and TEXTS the file
+as each of them holds it, followed by the file as it stood before the
+oldest.  NEWEST is the heading as the newest of TEXTS holds it, as
+`org-records-mcp--history-locate' returns one, or nil when it holds
+none, and IDENTITY the heading as Emacs holds it now, which it was
+found by.  LIMIT, when non-nil, is the most revisions to return.  The
+current buffer is the scratch buffer of
+`org-records-mcp--with-history-scratch'.  REPOSITORY is the file's,
+which a heading appearing or disappearing is looked for elsewhere in,
+see `org-records-mcp--history-elsewhere'.
+
+The walk goes back one revision at a time, finding the heading in
+each older text by what the newer one says of it, so a heading
+renamed while it carries an ID or a CUSTOM_ID is followed past the
+rename.  Where the older text lacks it, the search goes on with what
+the heading was last seen as.  The value is (ENTRIES . COMPLETE),
+COMPLETE nil when LIMIT stopped the walk before the oldest revision."
+  (let ((newer newest)
+        (identity (or newest identity))
+        (entries nil)
+        (rest revisions)
+        (older-texts (cdr texts)))
+    (while (and rest (not (and limit (>= (length entries) limit))))
+      (let* ((revision (car rest))
+             (older
+              (org-records-mcp--history-locate
+               (car older-texts) identity))
+             (change (org-records-mcp--history-change older newer))
+             (note (alist-get 'note change))
+             (elsewhere
+              (and (member note '("appears" "disappears"))
+                   (org-records-mcp--history-elsewhere
+                    repository
+                    (car revision)
+                    (or newer older)
+                    (equal note "appears")))))
+        (when elsewhere
+          (setf (alist-get 'note change)
+                (concat
+                 (if (equal note "appears")
+                     "moves from "
+                   "moves to ")
+                 elsewhere)))
+        (when change
+          (push `((revision . ,(car revision))
+                  (time
+                   .
+                   ,(format-time-string "%Y-%m-%dT%H:%M:%S"
+                                        (cdr revision)))
+                  ,@change)
+                entries))
+        (when older
+          (setq identity older))
+        (setq newer older)
+        (setq rest (cdr rest))
+        (setq older-texts (cdr older-texts))))
+    (cons (nreverse entries) (null rest))))
+
+(defun org-records-mcp--tool-node-history
+    (link since &optional limit files)
+  "Tool handler for org-node-history.
+LINK is a native Org link to a heading, SINCE the bound the history
+starts after, see `org-records-mcp--history-since-given', LIMIT the
+most revisions to return, see `org-records-mcp--history-limit-given',
+and FILES the files an `id:' LINK is looked up in, see
+`org-records-mcp--link-target'.  Returns structured JSON.
+
+The heading is found as a read finds it, in the buffer visiting its
+file, which is read and never changed.  The file's revisions come from
+the git repository it is committed in, and each is read into a
+scratch buffer, never into a buffer visiting the file; nothing is
+written anywhere.
+
+MCP Parameters:
+  link - Link to a heading (string, required):
+         - id:{id} (heading with that ID)
+         - file:/path/to/file.org::#{custom-id} (heading with that
+           CUSTOM_ID)
+         - file:/path/to/file.org::*{title} (first heading with that
+           title)
+         - any of these bracketed, as [[link]] or [[link][description]]
+  since - The bound the history starts after (string, required): a
+          commit hash, or a time
+  limit - The most revisions to return, the newest (integer,
+          optional); defaults to no cap
+  files - Files and directories to look up an id: link in, in order,
+          instead of Emacs's ID index (array of strings, optional);
+          refused with any other link"
+  (let* ((target (org-records-mcp--link-target link "link" files))
+         (file (plist-get target :file))
+         (heading nil)
+         (grammar nil)
+         (coding nil)
+         (link nil))
+    (org-records-mcp--with-org-file file
+      (org-records-mcp--goto-heading target)
+      (setq heading
+            (append
+             (org-records-mcp--history-heading-at-point)
+             (list
+              :file-text
+              (buffer-substring-no-properties
+               (point-min) (point-max)))))
+      (setq link (org-records-mcp--link-at-point))
+      (setq grammar (org-records-mcp--headline-grammar-settings))
+      (setq coding buffer-file-coding-system))
+    (let* ((sent since)
+           (since (org-records-mcp--history-since-given since))
+           (limit (org-records-mcp--history-limit-given limit))
+           (repository (org-records-mcp--history-repository file))
+           (head (plist-get repository :head))
+           (window
+            (org-records-mcp--history-window
+             repository since file sent))
+           (revisions (car window))
+           (texts
+            (org-records-mcp--history-texts
+             repository
+             `(,(org-records-mcp--history-object head repository)
+               ,@
+               (mapcar
+                (lambda (revision)
+                  (org-records-mcp--history-object
+                   (car revision) repository))
+                revisions)
+               ,@ (and (cdr window) (list (cdr window))))
+             coding)))
+      (unless (car texts)
+        (org-records-mcp--tool-validation-error
+         "%s is not committed in the git repository it is in"
+         file))
+      (org-records-mcp--with-history-scratch grammar
+        (let* ((newest
+                (org-records-mcp--history-locate (car texts) heading))
+               (walk
+                (org-records-mcp--history-revisions
+                 revisions
+                 (cdr texts)
+                 newest
+                 heading
+                 limit
+                 repository)))
+          (json-encode
+           `((link . ,link)
+             (file . ,file) (current . ,head)
+             (complete
+              .
+              ,(if (cdr walk)
+                   t
+                 :json-false))
+             (uncommitted
+              .
+              ,(if (equal
+                    (plist-get newest :text)
+                    (plist-get heading :text))
+                   :json-false t))
+             (revisions . ,(vconcat (car walk))))))))))
+
 ;; Clock tools
 
 (defun org-records-mcp--tool-config-clock ()
@@ -10435,6 +11374,72 @@ Returns: Plain text content of the heading and its subtree, or of
 the whole file")
     :read-only t)
    (list
+    #'org-records-mcp--tool-node-history
+    :id "org-node-history"
+    :description
+    (concat
+     "Show what changed on one Org heading since a bound, from the git
+repository its file is committed in.  Takes a native Org link.  Each
+revision that changed the heading comes back with a unified diff of
+the heading's subtree alone, never of the whole file, so a client
+sees an edit made in Emacs, on a phone or by another client without
+reading the file's history.
+
+Parameters:
+  link - Link to the heading (string, required)
+"
+     org-records-mcp--heading-link-formats
+     "         A link naming a whole file is refused.
+  since - Where the history starts (string, required), one of:
+          - a commit hash, 7 to 64 hexadecimal digits: the revisions
+            after that commit.  Send the current of an earlier
+            answer to see what changed since that answer.  A commit
+            HEAD does not descend from is refused.
+          - a time, as an ISO date or local time such as 2026-10-07
+            or 2026-10-07T16:00, or an Org timestamp such as
+            [2026-10-07 Wed 16:00]: the revisions committed at that
+            time or later.
+  limit - The most revisions to return (integer, optional)
+          The newest come back, and complete says whether older
+          ones were left unread.  0 asks for no cap, as leaving it
+          out does.
+  files - Files and directories to look up an id: link in (array of
+          strings, optional); see org-node-read
+
+Returns: JSON object with:
+  link - Link to the heading (string)
+  file - The file the heading is in (string)
+  current - The commit the answer is current to, HEAD of the
+            file's repository (string).  Send it as the next since.
+  complete - False when limit stopped the history before the oldest
+             revision in its window (boolean)
+  uncommitted - True when the heading as Emacs holds it now differs
+                from the heading at current: an edit not yet
+                committed, or not yet saved (boolean)
+  revisions - The revisions that changed the heading, newest first
+              (array).  Each has revision, the commit (string); time,
+              its local commit time as 2026-10-07T16:10:00 (string);
+              diff, the unified diff of the subtree from the
+              revision before (string, absent when only note
+              changed); and note (string, only when there is one):
+              \"appears\", \"disappears\", \"moves from A to B\"
+              when the heading went under another parent, or
+              \"moves from FILE\" and \"moves to FILE\" when one
+              commit refiled it between this file and FILE.
+
+The heading is followed back through the revisions by its ID, else
+its CUSTOM_ID, else its outline path, else its title where one
+heading alone carries it.  A heading without an ID or a CUSTOM_ID
+whose title changed is not followed past the change, and appears
+there.  A file renamed in the window starts its history at the
+rename.  A window of more than org-records-mcp-history-max-revisions
+revisions of the file is refused.
+
+File must be in the allowed files, or permitted by
+org-records-mcp-file-scope-override, and committed in a git
+repository.")
+    :read-only t)
+   (list
     #'org-records-mcp--tool-query
     :id "org-query"
     :description
@@ -10967,6 +11972,8 @@ Each element is a `mcp-server-lib-register-server' `:resources' spec,
     (fields . fields)
     (computed . computed)
     (depth . count)
+    (limit . count)
+    (since . text)
     (resolve . flag)
     (before_planning . planning-map)
     (setting . setting)

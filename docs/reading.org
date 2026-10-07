@@ -628,7 +628,8 @@ the MCP client's @-mention / resource picker UI and requires the user (or
 client heuristics) to select it. Tools, by contrast, are /model-controlled/:
 the LLM can invoke them directly without user mediation. =org-node-read= returns
 the same data as the resource for the same link; =org-node-text= is a
-tool-only variant with no resource counterpart.
+tool-only variant with no resource counterpart. What changed on a heading over
+time is a third read, [[file:history.org][A heading's history]].
 
 ** org-node-read
 - *Description:* Read Org file or heading with structured JSON output

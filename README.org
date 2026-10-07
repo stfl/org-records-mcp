@@ -3,7 +3,7 @@
 org-records-mcp turns your running Emacs into an MCP server over your Org files.
 An MCP client — Claude Code, Claude Desktop, any other — reads your outline as
 records, searches it with [[https://github.com/alphapapa/org-ql][org-ql]], runs your agenda's questions by name, and
-writes back through 33 tools and one resource, while the files stay where Org
+writes back through 34 tools and one resource, while the files stay where Org
 keeps them.
 
 *WARNING:* some of the tools in this package give LLMs WRITE access to your Org
@@ -133,6 +133,8 @@ the next call sends — the same text =org-store-link= gives you in Emacs.
 
 Emacs 30.1 or later, with =mcp-server-lib= and =org-ql=. CI covers Emacs 30.2 and
 31.1 on Linux and macOS. [[file:docs/installation.org][Installing org-records-mcp]] carries the dependency versions.
+A heading's history is read with =git=, from a repository its file is committed
+in; nothing else needs it.
 
 * Where to go next
 
@@ -142,6 +144,7 @@ Emacs 30.1 or later, with =mcp-server-lib= and =org-ql=. CI covers Emacs 30.2 an
 | [[file:docs/file-access.org][Which files a call reaches]]     | The allowed files, naming a file outside them, finding an ID's file |
 | [[file:docs/links.org][Addressing headings with links]] | The link forms a call takes, what is refused, what comes back       |
 | [[file:docs/reading.org][Reading Org content]]            | The =org://{link}= resource, the read tools, the discovery tools    |
+| [[file:docs/history.org][A heading's history]]            | What changed on one heading since you last looked, from git         |
 | [[file:docs/writing.org][Changing Org content]]           | What a write does to your buffers and your files, every write tool  |
 | [[file:docs/queries.org][Searching and named views]]      | org-ql queries, and the views a caller runs by name                 |
 | [[file:docs/clocking.org][Clock tracking]]                 | Clocking in and out, adding, deleting and repairing clock entries   |

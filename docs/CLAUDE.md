@@ -20,6 +20,7 @@ owns the question, never to a second page that repeats it:
 | `file-access.org` | the allowed files, `org-records-mcp-file-scope-override`, the `files` parameter, directory searches, finding an ID's file |
 | `links.org` | the link forms a call takes, how they resolve, the link every response carries |
 | `reading.org` | the `org://{link}` resource, `org-node-read`, `org-node-text`, and the six configuration and discovery tools |
+| `history.org` | `org-node-history`: what a history answers, `since`, how a heading is followed back through revisions, `org-records-mcp-history-max-revisions` |
 | `writing.org` | what a write does to buffers and files, and the sixteen write tools |
 | `queries.org` | `org-query`, `org-view`, and the views, filters and settings that define them |
 | `clocking.org` | the seven clock tools and `org-records-mcp-clock-continuous-threshold` |
