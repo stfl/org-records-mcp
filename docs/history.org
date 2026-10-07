@@ -1,0 +1,221 @@
+#+TITLE: A heading's history
+
+This page answers how a client sees what changed on one heading since it last
+looked — an edit typed in Emacs, a note taken on a phone, a state changed by
+another client — without reading the history of the whole file.
+=org-node-history= answers it from the git repository the heading's file is
+committed in. Reading a heading as it stands now is [[file:reading.org][Reading Org content]]; the
+[[file:../README.org][README]] introduces the server itself.
+
+* What a history answers
+
+A history is the revisions that changed one heading, newest first. A revision
+is a commit to the heading's file, and it counts only when it changed the
+heading's subtree — its heading line, planning, drawers, body and every heading
+under it — or moved it under another parent. A commit that changed the file
+elsewhere is left out. Each revision carries the change as a unified diff of the
+subtree alone, so the answer costs what changed on the heading, not what changed
+in the file.
+
+#+begin_src json
+{
+  "link": "file:/home/you/org/gtd.org::#loop-v1",
+  "file": "/home/you/org/gtd.org",
+  "current": "782e723584ff6b920e52a1008fe409cc93f1ae6a",
+  "complete": true,
+  "uncommitted": false,
+  "revisions": [
+    {"revision": "63a05fb0b3d6f1e7a9c2d4e8f0a1b2c3d4e5f6a7",
+     "time": "2026-10-07T16:59:19",
+     "diff": "@@ -1,4 +1,4 @@\n-*** NEXT Loop v1\n+*** WAIT Loop v1\n :PROPERTIES:\n :CUSTOM_ID: loop-v1\n :END:"},
+    {"revision": "6b5f2e7e0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f",
+     "time": "2026-10-07T16:43:29",
+     "diff": "@@ -3,3 +3,4 @@\n :CUSTOM_ID: loop-v1\n :END:\n Fourteen decisions, one per ticket.\n+The Jira tag waits for the taxonomy."}
+  ]
+}
+#+end_src
+
+| Key           | Carries                                                                                   |
+|---------------+-------------------------------------------------------------------------------------------|
+| =link=        | the link that names the heading now                                                       |
+| =file=        | the file the heading is in                                                                |
+| =current=     | the commit the answer is current to: =HEAD= of the file's repository                      |
+| =complete=    | =false= when =limit= stopped the history before the oldest revision of its window         |
+| =uncommitted= | =true= when the heading as Emacs holds it now differs from the heading at =current=       |
+| =revisions=   | the revisions that changed the heading, newest first                                      |
+
+Each revision is an object of what it has:
+
+| Key        | Carries                                                                       |
+|------------+-------------------------------------------------------------------------------|
+| =revision= | the commit's full hash                                                        |
+| =time=     | when it was committed, in Emacs's local time, as =2026-10-07T16:10:00=        |
+| =diff=     | the change to the subtree, from the revision before to this one               |
+| =note=     | =appears=, =disappears=, or a move: see below                                 |
+
+The diff is hunks alone, each under its =@@ -L,S +L,S @@= line, with three
+lines of context, as =diff -u= and =git diff= write them. Its line numbers count
+from the heading's own line, which is line 1. A heading that appears carries its
+whole subtree as added lines, one that disappears its whole subtree as removed
+ones. A heading moved under another parent at the same level reads the same
+before and after, so that revision carries a =note= and no =diff=.
+
+A move is one of two notes. =moves from A to B= is a move under another parent
+in the same file, =A= and =B= the parents' outline paths, their titles joined by
+=/=, or =the top level=. Another parent is another heading, not another title:
+two parents carrying an =ID= are one heading when it is the same, two carrying a
+=CUSTOM_ID= likewise, and two carrying neither when they stand at the same place
+in the outline or under the same titles. So a parent renamed, or one whose TODO
+keyword changes between one the file's keywords name and one they do not, is
+no move of the headings under it, and a heading moved between two parents of the
+same title is one when an identifier tells them apart. =moves from FILE= and =moves to FILE= stand where the
+heading would appear or disappear, when one commit took it out of one file and
+wrote it into the other: the heading carries an =ID= or a =CUSTOM_ID=, and of
+the other Org files that commit changed, =FILE= is the one that held it before
+and not after, or after and not before. =FILE= is the path a call reaches that
+file by, and a file the call could not reach is never named: the heading then
+only appears or disappears.
+
+=uncommitted= is how a client knows the answer is not the whole story yet: an
+edit saved and not yet committed, or typed into a buffer and not yet saved, is
+in no revision. It is read from the buffer visiting the file when there is one,
+as every read is, and a read of the heading shows what it holds.
+
+* Where a history starts
+
+=since= says where the history starts, and it takes one of two things.
+
+A commit hash, abbreviated or full, starts it after that commit. The =current=
+of an earlier answer is one, so a client that keeps the =current= it was last
+given and sends it back as =since= sees exactly what changed between the two
+calls, nothing twice and nothing skipped. A commit =HEAD= does not descend from
+is refused, since the commits after it are no line of history; that happens
+when the repository's history was rewritten after the commit was handed out.
+
+A time starts it at the revisions committed at that time or later. It is an ISO
+date or local time, such as =2026-10-07= or =2026-10-07T16:00=, as the clock
+tools take one (see [[file:clocking.org::*A clock time has to be a time][A clock time has to be a time]]), or an Org timestamp, such as
+=[2026-10-07 Wed 16:00]= or =<2026-10-07 Wed>=, whose day name is not read. A
+revision's =time= is in the same form, and sent back it takes that revision in
+again; =current= is the bound to keep for what came after an answer.
+
+The revisions are the commits on the first-parent line of =HEAD= that changed
+the file: a merge counts as the commit it is on that line, and the commits it
+brought in from elsewhere do not count on their own. Each revision's diff is
+taken against the one before it on that line, and the oldest's against its own
+first parent. A commit =since= on a branch merged into the line therefore starts
+the history at the first commit of the line it does not reach, and that
+revision's diff runs from the line as it stood, not from the branch.
+
+=HEAD= is read once, when the history begins, and =current= is that commit. A
+commit landing while the history is read, as a sync committing every few
+seconds can, is in neither the revisions nor the ceiling's count, and the next
+call sending =current= as =since= sees it.
+
+* Following a heading back
+
+A history follows its heading back one revision at a time, finding it in each by
+what the revision after said of it:
+
+1. by its =ID=, when it carries one;
+2. else by its =CUSTOM_ID=;
+3. else by its outline path, the titles from its outermost ancestor down to its
+   own, matched as a =::*title= link matches a title;
+4. else by its own title alone, when one heading in that revision carries it and
+   that heading is not one still standing, under the same outline path, in the
+   revision the followed heading was last found in.
+
+A heading with an =ID= or a =CUSTOM_ID= is followed past a change of its title,
+and past a move to another parent, for as long as it carries either. Before it
+was given one, it is followed by the title and outline path the revision after
+reported. A heading carrying an =ID= other than the one followed is never taken
+for it, whatever its title or its =CUSTOM_ID=.
+
+The followed heading is always a heading. A file whose own property drawer
+carries its =ID=, as org-roam's file nodes do, is not its earlier version: a file
+node demoted into a heading appears where it became one, and a revision in
+which the file's name held a directory holds no heading at all.
+
+A heading carrying neither is followed by its title, and that has limits a
+client should expect:
+
+- A change of its title is where its history starts: nothing it carries says
+  which heading it was before, so that revision says it =appears=.
+- A heading of the same title elsewhere in the file can stand in for it when the
+  title was the only thing to go by. The fourth rule keeps that from happening
+  when the other heading was already there; it cannot tell two headings apart
+  that are both new.
+
+Give a heading whose history matters an =ID= or a =CUSTOM_ID= that stays put for
+its lifetime. org-records-mcp creates neither of its own accord; a client sets
+one with [[file:writing.org::*org-node-set-properties][org-node-set-properties]].
+
+The history is the file's, under the name it has now. A heading refiled in from
+another file is followed no further back than the refile, whose revision names
+the file it came from (see [[*What a history answers][What a history answers]]); its history there is a
+history of that file. A refile spread over two commits, the heading taken out in
+one and written in the next, reads as a heading that disappears and one that
+appears. A file renamed inside the window starts its history at the rename.
+
+* What a history costs
+
+A history reads the file once for every revision in its window, whether or not
+the revision changed the heading, and it parses each into an Org buffer of its
+own, so it blocks Emacs while it runs. Each diff is found with Myers's
+algorithm, in time that grows with the subtree's lines times the lines that
+changed, so a long subtree edited in a few places costs little. As a measure: a heading followed by its
+=CUSTOM_ID= through ninety revisions of a 500-line file answers in about a third
+of a second, and one followed by its title through sixty revisions of a
+1,400-line file in about a second.
+
+=org-records-mcp-history-max-revisions= is the most revisions one history reads,
+200 by default. A window holding more is refused, naming the remedy:
+
+#+begin_example
+Too many revisions of /home/you/org/gtd.org: more than 200 since 2026-09-01.  Send a later since.  org-records-mcp-history-max-revisions sets the ceiling
+#+end_example
+
+It is never cut short to fit, because a history that stopped partway without
+saying so reads like a complete one. =limit= is the way to ask for less of the
+answer: it returns that many revisions, the newest, and =complete= says whether
+older ones were left unread. It does not lift the ceiling, which counts the
+revisions of the window rather than the ones returned, so a window past it is
+refused whatever =limit= says; a later =since= is the remedy.
+
+* What a history never does
+
+It writes nothing. No file, no buffer and nothing in the repository changes: git
+is asked to read and nothing else, and it takes none of the locks a commit
+running beside it could trip over. Each revision is read into a buffer of its
+own, never into the buffer visiting the file, with the TODO keywords and
+priorities the file has now and without running Org's hooks or a revision's
+=#+SETUPFILE:=.
+
+It reads the repository the file is in. git finds it from the file's own
+directory, with the variables that would point it at another repository, such
+as =GIT_DIR= and =GIT_INDEX_FILE=, unset: an Emacs started from a git hook, which
+carries them, still reads the file's own history.
+
+It reaches the headings a read reaches. The link resolves as it does for
+=org-node-read=, with the same refusals, and a link naming a whole file is
+refused too. The file must be in the allowed files or permitted by
+=org-records-mcp-file-scope-override= (see [[file:file-access.org][Which files a call reaches]]).
+
+* org-node-history
+- *Description:* Show what changed on one heading since a bound, from the git
+  repository its file is committed in
+- *Parameters:*
+  - =link= (string, required): link to the heading (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]): =id:<id>=, =file:/path/to/file.org::#<custom-id>= or =file:/path/to/file.org::*<title>=. A link naming a whole file is refused
+  - =since= (string, required): a commit hash, or a time; see [[*Where a history starts][Where a history starts]]
+  - =limit= (integer, optional): the most revisions to return, the newest. It does not lift =org-records-mcp-history-max-revisions=. 0 asks for no cap, as leaving it out does
+  - =files= (array of strings, optional): Files and directories to look up an =id:= link in, instead of the ID index; see [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]
+- *Returns:* JSON object with =link=, =file=, =current=, =complete=, =uncommitted= and =revisions= (see [[*What a history answers][What a history answers]])
+- *Configuration:* File must be in =org-records-mcp-allowed-files=, or permitted by =org-records-mcp-file-scope-override=, and committed in a git repository; =git= must be on Emacs's =exec-path=. =org-records-mcp-history-max-revisions= caps the window
+
+A history is refused when the file is in no git repository, when the
+repository has no commit or never committed the file, and when =since= is
+neither a commit hash nor a time:
+
+#+begin_example
+Not a commit or a time: 'yesterday'.  since takes a commit hash, such as the current of an earlier answer, an ISO time such as 2026-10-07T16:00, or an Org timestamp such as [2026-10-07 Wed 16:00]
+#+end_example

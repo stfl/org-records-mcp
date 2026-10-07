@@ -248,6 +248,7 @@ kind of thing changed:
 | Change                                    | Page                           |
 |-------------------------------------------+--------------------------------|
 | a read tool, a resource, a discovery tool | [[file:docs/reading.org][Reading Org content]]            |
+| a heading's history, or what it reads     | [[file:docs/history.org][A heading's history]]            |
 | a write tool, or write behaviour          | [[file:docs/writing.org][Changing Org content]]           |
 | a query or view tool, or its settings     | [[file:docs/queries.org][Searching and named views]]      |
 | a clock tool or clock setting             | [[file:docs/clocking.org][Clock tracking]]                 |
