@@ -8723,29 +8723,94 @@ string sends it.  Anything else is refused."
        (org-records-mcp--json-name limit)))
     (and (> count 0) count)))
 
-(defun org-records-mcp--history-outline-path ()
-  "Return the titles from the heading at point's outermost ancestor down.
-The last title is the heading's own; each is the one
-`org-records-mcp--title-at-point' reads.  Point does not move."
+(defun org-records-mcp--history-lineage ()
+  "Return the heading at point and the headings above it, outermost first.
+Each is a plist: `:title' as `org-records-mcp--title-at-point' reads
+it, `:ordinal' how many siblings come before it, as
+`org-get-previous-sibling' steps back over them, and `:id' and
+`:custom-id' its own ID and CUSTOM_ID, nil when it carries none.
+Neither is inherited, whatever `org-use-property-inheritance' says:
+an ancestor's ID names the ancestor.  Point does not move."
   (save-excursion
     (org-back-to-heading t)
-    (let ((path (list (org-records-mcp--title-at-point))))
-      (while (org-up-heading-safe)
-        (push (org-records-mcp--title-at-point) path))
-      path)))
+    (let ((lineage nil)
+          (more t))
+      (while more
+        (push (list
+               :title (org-records-mcp--title-at-point)
+               :ordinal
+               (save-excursion
+                 (let ((count 0))
+                   (while (org-get-previous-sibling)
+                     (cl-incf count))
+                   count))
+               :id (org-entry-get nil "ID")
+               :custom-id (org-entry-get nil "CUSTOM_ID"))
+              lineage)
+        (setq more (org-up-heading-safe)))
+      lineage)))
 
 (defun org-records-mcp--history-heading-at-point ()
   "Return the heading at point as a history follows it, a plist.
 `:text' is its subtree as org-node-text reads it, `:path' its outline
-path, see `org-records-mcp--history-outline-path', and `:id' and
-`:custom-id' its own ID and CUSTOM_ID, nil when it carries none.
-Neither is inherited, whatever `org-use-property-inheritance' says:
-an ancestor's ID names the ancestor."
-  (list
-   :text (org-records-mcp--node-text-at-point)
-   :path (org-records-mcp--history-outline-path)
-   :id (org-entry-get nil "ID")
-   :custom-id (org-entry-get nil "CUSTOM_ID")))
+path, the titles from its outermost ancestor down to its own, and
+`:id' and `:custom-id' its own ID and CUSTOM_ID, nil when it carries
+none.  `:parent' is the heading it sits under, nil at the top level:
+`:id' and `:custom-id' as the heading's, `:path' its outline path and
+`:place' the ordinal of it and of every heading above it, see
+`org-records-mcp--history-lineage'.  What the parent is, rather than
+what it is called, is what says whether the heading moved, see
+`org-records-mcp--history-same-parent-p'."
+  (let* ((lineage (org-records-mcp--history-lineage))
+         (own (car (last lineage)))
+         (above (butlast lineage))
+         (parent (car (last above))))
+    (list
+     :text (org-records-mcp--node-text-at-point)
+     :path
+     (mapcar (lambda (heading) (plist-get heading :title)) lineage)
+     :id (plist-get own :id)
+     :custom-id (plist-get own :custom-id)
+     :parent
+     (and parent
+          (list
+           :id (plist-get parent :id)
+           :custom-id (plist-get parent :custom-id)
+           :path
+           (mapcar
+            (lambda (heading) (plist-get heading :title)) above)
+           :place
+           (mapcar
+            (lambda (heading)
+              (plist-get heading :ordinal))
+            above))))))
+
+(defun org-records-mcp--history-same-parent-p (older newer)
+  "Return non-nil when parents OLDER and NEWER are one heading.
+Each is the `:parent' of a heading as
+`org-records-mcp--history-heading-at-point' returns one, nil at the top
+level.  Two parents carrying an ID are one when it is the same, and
+otherwise two carrying a CUSTOM_ID are one when that is.  Parents
+without either are one when their outline paths are the same, or
+their places are: a parent renamed, or one whose keyword the file's
+keywords do not name, keeps its place, and a parent a heading was
+written above keeps its path.  A heading that moves under another
+parent changes both."
+  (cond
+   ((and (null older) (null newer))
+    t)
+   ((or (null older) (null newer))
+    nil)
+   ((and (plist-get older :id) (plist-get newer :id))
+    (string= (plist-get older :id) (plist-get newer :id)))
+   ((and (plist-get older :custom-id) (plist-get newer :custom-id))
+    (string=
+     (plist-get older :custom-id) (plist-get newer :custom-id)))
+   (t
+    (or (org-records-mcp--history-paths-equal-p
+         (plist-get older :path)
+         (plist-get newer :path))
+        (equal (plist-get older :place) (plist-get newer :place))))))
 
 (defun org-records-mcp--history-repository (file)
   "Return the git repository FILE is committed in, as a plist.
@@ -8796,19 +8861,24 @@ SINCE is what `org-records-mcp--history-since-given' returns, and FILE
 the file as the call reaches it and SENT the `since' the call sent,
 for a refusal to name.  The value is
 \(REVISIONS . BASE): REVISIONS a list of (COMMIT . TIME), one for each
-commit on HEAD's first-parent line that changed the file, TIME the
-committer time in seconds; BASE the object name of the file as it
-stood before the oldest of them, or nil when there are none.
+commit on the first-parent line of REPOSITORY's `:head' that changed
+the file, TIME the committer time in seconds; BASE the object name of
+the file at the first parent of the oldest of them, or nil when there
+are none.
 
-A time SINCE takes the commits committed at it or later, and BASE is
-the file at the first parent of the oldest.  A commit SINCE takes the
-commits after it, and BASE is the file at that commit: a commit HEAD
-does not descend from is refused, since the commits after it are no
-line of history.  The first-parent line makes consecutive revisions
-each other's parent as far as the file goes, whatever merges the
-history holds.  A window of more than
+The line is the one of the commit `:head' names, resolved once when
+the history began, so a commit landing while it is read is left to
+the next.  A time SINCE takes the commits committed at it or later.
+A commit SINCE takes the commits after it: a commit `:head' does not
+descend from is refused, since the commits after it are no line of
+history.  BASE is the first parent of the oldest either way, even for
+a commit SINCE on a branch merged into the line: the first-parent
+line makes consecutive revisions each other's parent as far as the
+file goes, whatever merges the history holds, and the oldest's first
+parent is where that line was before it.  A window of more than
 `org-records-mcp-history-max-revisions' revisions is refused."
   (let* ((directory (plist-get repository :directory))
+         (head (plist-get repository :head))
          (max org-records-mcp-history-max-revisions)
          (commit
           (when (eq (car since) 'commit)
@@ -8829,7 +8899,7 @@ history holds.  A window of more than
                                               "merge-base"
                                               "--is-ancestor"
                                               full
-                                              "HEAD"))
+                                              head))
                        0)
                 (org-records-mcp--tool-validation-error
                  "HEAD does not descend from commit %s: send a \
@@ -8847,12 +8917,12 @@ commit on the current branch, or a time"
                  (number-to-string (1+ max))
                  (append
                   (if commit
-                      (list (concat commit "..HEAD"))
+                      (list (concat commit ".." head))
                     (list
                      (format-time-string
                       "--since=%Y-%m-%d %H:%M:%S %z"
                       (cdr since))
-                     "HEAD"))
+                     head))
                   (list "--" (plist-get repository :name)))))
          (revisions
           (mapcar
@@ -8874,15 +8944,17 @@ since.  org-records-mcp-history-max-revisions sets the ceiling"
      revisions
      (when revisions
        (org-records-mcp--history-object
-        (or commit
-            (concat (car (car (last revisions))) "^"))
-        repository)))))
+        (concat (car (car (last revisions))) "^") repository)))))
 
 (defun org-records-mcp--history-texts (repository objects coding)
   "Return the text of each of OBJECTS in REPOSITORY, nil for a missing one.
 OBJECTS are object names, as `org-records-mcp--history-object' makes
 them.  One `git cat-file --batch' reads them all, and each blob is
-decoded with CODING, the coding system Emacs reads the file with."
+decoded with CODING, the coding system Emacs reads the file with.
+An object that is no blob, such as the directory a revision held
+under the file's name, holds no file text and is nil too; its
+content is passed over by the size git gives it, so the objects after
+it are read where they begin."
   (let ((result
          (org-records-mcp--git (plist-get repository :directory)
                                (mapconcat (lambda (object)
@@ -8898,15 +8970,17 @@ decoded with CODING, the coding system Emacs reads the file with."
       (dolist (_ objects)
         (let ((line (buffer-substring (point) (line-end-position))))
           (forward-line 1)
-          (if (string-match "\\`[0-9a-f]+ blob \\([0-9]+\\)\\'" line)
+          (if (string-match
+               "\\`[0-9a-f]+ \\([a-z]+\\) \\([0-9]+\\)\\'" line)
               (let* ((start (point))
                      (end
                       (+ start
-                         (string-to-number (match-string 1 line)))))
-                (push (decode-coding-string
-                       (buffer-substring start end) coding)
+                         (string-to-number (match-string 2 line)))))
+                (push (and (equal (match-string 1 line) "blob")
+                           (decode-coding-string
+                            (buffer-substring start end) coding))
                       texts)
-                ;; The blob is followed by a newline of git's own.
+                ;; The object is followed by a newline of git's own.
                 (goto-char (1+ end)))
             (push nil texts)))))
     (nreverse texts)))
@@ -8988,33 +9062,56 @@ heading written beside one of the same title did not move there."
                  :test #'org-records-mcp--history-paths-equal-p))
                (car (car titled)))))))
 
+(defun org-records-mcp--history-find-property (property value)
+  "Return where the heading whose PROPERTY is VALUE begins, or nil.
+The first heading carrying it is the one, as `org-find-property'
+finds it.  A file's own property drawer is no heading, and is passed
+over: `org-find-property' would return it first, as the start of the
+buffer, and stop there, so its search is made here with the same
+regexp, `org-re-property', and the same test that a match is a node
+property, `org-at-property-p', and goes on past a match before the
+first heading."
+  (let ((case-fold-search t)
+        (regexp (org-re-property property nil nil value)))
+    (org-with-wide-buffer
+     (goto-char (point-min))
+     (catch 'found
+       (while (re-search-forward regexp nil t)
+         (when (and (org-at-property-p)
+                    (not (org-before-first-heading-p)))
+           (org-back-to-heading t)
+           (throw 'found (point))))))))
+
 (defun org-records-mcp--history-find (identity seen-in)
   "Return where the heading IDENTITY names begins in the current buffer.
 IDENTITY is a plist as `org-records-mcp--history-heading-at-point'
 returns one, and SEEN-IN the file text it was found in.  The heading
 is found by its ID, else by its CUSTOM_ID, else by its outline path,
-see `org-records-mcp--history-find-by-path'.  A heading found by its path
-whose own ID or CUSTOM_ID differs from one IDENTITY carries is
-another heading, and nil is returned: an identifier names one heading
-for as long as it is there.  Nil also when nothing matches."
+see `org-records-mcp--history-find-by-path'.  A heading found by its
+CUSTOM_ID or its path whose own ID differs from the one IDENTITY
+carries is another heading, and so is one found by its path whose
+CUSTOM_ID differs: an identifier names one heading for as long as it
+is there.  A file's own property drawer is never the heading, see
+`org-records-mcp--history-find-property'.  Nil when nothing matches."
   (let ((id (plist-get identity :id))
         (custom-id (plist-get identity :custom-id)))
-    (or (and id (org-find-entry-with-id id))
-        (and custom-id (org-find-property "CUSTOM_ID" custom-id))
-        (when-let* ((begin
-                     (org-records-mcp--history-find-by-path
-                      (plist-get identity :path) seen-in)))
-          (save-excursion
-            (goto-char begin)
-            (cl-flet ((agrees
-                       (ours property)
-                       (let ((theirs (org-entry-get nil property)))
-                         (or (null ours)
-                             (null theirs)
-                             (string= ours theirs)))))
-              (and (agrees id "ID")
-                   (agrees custom-id "CUSTOM_ID")
-                   begin)))))))
+    (cl-flet ((agrees
+               (begin ours property)
+               (or (null ours)
+                   (let ((theirs (org-entry-get begin property)))
+                     (or (null theirs) (string= ours theirs))))))
+      (or (and id (org-records-mcp--history-find-property "ID" id))
+          (when-let* ((begin
+                       (and custom-id
+                            (org-records-mcp--history-find-property
+                             "CUSTOM_ID" custom-id))))
+            (and (agrees begin id "ID") begin))
+          (when-let* ((begin
+                       (org-records-mcp--history-find-by-path
+                        (plist-get identity :path) seen-in)))
+            (and (agrees begin id "ID")
+                 (agrees begin custom-id "CUSTOM_ID")
+                 begin))))))
 
 (defun org-records-mcp--history-locate (text identity)
   "Return the heading IDENTITY names in file TEXT, or nil.
@@ -9055,80 +9152,214 @@ the whole buffer."
      (org-set-regexps-and-options)
      ,@body))
 
+(defun org-records-mcp--history-snake (a b a-lo a-hi b-lo b-hi)
+  "Return where a shortest edit script turns A's range into B's, split in two.
+A and B are vectors of line numbers, and the ranges run from A-LO
+below A-HI and from B-LO below B-HI.  Both are non-empty and their
+first lines and their last lines differ.  The value is (X . Y), a
+point on a shortest path through the edit graph strictly between the
+corners, found as Myers's linear-space algorithm finds the middle
+snake: by searching forward from the start and backward from the end
+at once until the two paths overlap.  A shortest script of the whole
+range is a shortest script up to (X . Y) followed by one from it.
+
+The paths overlap within half as many edits as there are lines
+whenever the ranges share a line.  When they share none they do not,
+and nil is returned: every line is taken out and put in, which is the
+shortest script there is."
+  (let* ((n (- a-hi a-lo))
+         (m (- b-hi b-lo))
+         (max-d (/ (+ n m 1) 2))
+         (offset max-d)
+         ;; Diagonals -D-1 to D+1 are read for D below MAX-D.
+         (size (1+ (* 2 max-d)))
+         (forward (make-vector size -1))
+         (backward (make-vector size -1))
+         (delta (- n m))
+         (front (/= (% delta 2) 0))
+         (forward-start 0)
+         (forward-end 0)
+         (backward-start 0)
+         (backward-end 0))
+    (aset forward (1+ offset) 0)
+    (aset backward (1+ offset) 0)
+    (catch 'split
+      (dotimes (d max-d)
+        ;; One more edit forward, along every diagonal still inside
+        ;; the graph.
+        (let ((k (+ (- d) forward-start)))
+          (while (<= k (- d forward-end))
+            (let* ((index (+ offset k))
+                   (x
+                    (if (or (= k (- d))
+                            (and (/= k d)
+                                 (< (aref forward (1- index))
+                                    (aref forward (1+ index)))))
+                        (aref forward (1+ index))
+                      (1+ (aref forward (1- index)))))
+                   (y (- x k)))
+              (while (and (< x n)
+                          (< y m)
+                          (= (aref a (+ a-lo x)) (aref b (+ b-lo y))))
+                (setq x (1+ x))
+                (setq y (1+ y)))
+              (aset forward index x)
+              (cond
+               ((> x n)
+                (setq forward-end (+ forward-end 2)))
+               ((> y m)
+                (setq forward-start (+ forward-start 2)))
+               (front
+                (let ((other (- (+ offset delta) k)))
+                  (when (and (>= other 0)
+                             (< other size)
+                             (/= (aref backward other) -1)
+                             (>= x (- n (aref backward other))))
+                    (throw 'split (cons (+ a-lo x) (+ b-lo y)))))))
+              (setq k (+ k 2)))))
+        ;; One more edit backward, from the end.
+        (let ((k (+ (- d) backward-start)))
+          (while (<= k (- d backward-end))
+            (let* ((index (+ offset k))
+                   (x
+                    (if (or (= k (- d))
+                            (and (/= k d)
+                                 (< (aref backward (1- index))
+                                    (aref backward (1+ index)))))
+                        (aref backward (1+ index))
+                      (1+ (aref backward (1- index)))))
+                   (y (- x k)))
+              (while (and (< x n)
+                          (< y m)
+                          (= (aref a (- a-hi 1 x))
+                             (aref b (- b-hi 1 y))))
+                (setq x (1+ x))
+                (setq y (1+ y)))
+              (aset backward index x)
+              (cond
+               ((> x n)
+                (setq backward-end (+ backward-end 2)))
+               ((> y m)
+                (setq backward-start (+ backward-start 2)))
+               ((not front)
+                (let ((other (- (+ offset delta) k)))
+                  (when (and (>= other 0)
+                             (< other size)
+                             (/= (aref forward other) -1))
+                    (let* ((forward-x (aref forward other))
+                           (forward-y (- (+ offset forward-x) other)))
+                      (when (>= forward-x (- n x))
+                        (throw 'split
+                               (cons
+                                (+ a-lo forward-x)
+                                (+ b-lo forward-y)))))))))
+              (setq k (+ k 2))))))
+      nil)))
+
+(defun org-records-mcp--history-matches (a b)
+  "Return the pairs of lines a shortest edit script keeps from A to B.
+A and B are vectors of line numbers, equal numbers for equal lines.
+The value is a list of (I . J), A's line I kept as B's line J, in
+order, as many as a longest common subsequence holds.  Lines both
+share at the start and at the end of each range are kept as they
+are, and the rest is split at a point on a shortest path, see
+`org-records-mcp--history-snake', which takes time in proportion to
+the lines times the edits and space in proportion to the lines."
+  (let ((matches nil))
+    (cl-labels ((walk
+                 (a-lo a-hi b-lo b-hi)
+                 (while (and (< a-lo a-hi)
+                             (< b-lo b-hi)
+                             (= (aref a a-lo) (aref b b-lo)))
+                   (push (cons a-lo b-lo) matches)
+                   (setq a-lo (1+ a-lo))
+                   (setq b-lo (1+ b-lo)))
+                 (let ((tail 0))
+                   (while (and (< a-lo (- a-hi tail))
+                               (< b-lo (- b-hi tail))
+                               (= (aref a (- a-hi tail 1))
+                                  (aref b (- b-hi tail 1))))
+                     (setq tail (1+ tail)))
+                   (let ((a-end (- a-hi tail))
+                         (b-end (- b-hi tail)))
+                     (when (and (< a-lo a-end) (< b-lo b-end))
+                       (when-let* ((split
+                                    (org-records-mcp--history-snake
+                                     a b a-lo a-end b-lo b-end)))
+                         (walk a-lo (car split) b-lo (cdr split))
+                         (walk (car split) a-end (cdr split) b-end)))
+                     (dotimes (i tail)
+                       (push
+                        (cons (+ a-end i) (+ b-end i)) matches))))))
+      (walk 0 (length a) 0 (length b)))
+    (nreverse matches)))
+
 (defun org-records-mcp--history-edits (old new)
   "Return the edits turning the list of lines OLD into NEW.
 Each edit is (OP . LINE), OP one of the characters ?\\s, ?- and ?+
-that start a line of a unified diff, in order.  The lines both share
-at the start and at the end are kept as they are, and a longest
-common subsequence of the rest decides what is kept between.
+that start a line of a unified diff, in order.  The lines kept are a
+longest common subsequence, so the edits are as few as any diff
+makes, and between two kept lines the lines taken out come before
+the lines put in, as `diff' writes them.
 
 Emacs has no diff of its own to call: `diff' runs a program over
-files, which a history does not write.  When the lines between are
-too many to compare in reasonable space, every one of them is taken
-out and put back rather than compared."
-  (let* ((a (vconcat old))
-         (b (vconcat new))
-         (n (length a))
-         (m (length b))
-         (head 0)
-         (tail 0))
-    (while (and (< head n)
-                (< head m)
-                (equal (aref a head) (aref b head)))
-      (cl-incf head))
-    (while (and (< tail (- n head))
-                (< tail (- m head))
-                (equal (aref a (- n tail 1)) (aref b (- m tail 1))))
-      (cl-incf tail))
-    (let* ((rows (- n head tail))
-           (columns (- m head tail))
-           (width (1+ columns))
+files, which a history does not write.  So the subsequence is found
+here, by Myers's algorithm, see `org-records-mcp--history-matches'.
+A line only one side holds can be kept by no subsequence, so the
+search runs over the lines both sides hold, which is all of them
+for a subtree edited in place and few of them for one rewritten."
+  (let* ((numbers (make-hash-table :test #'equal))
+         (number
+          (lambda (line)
+            (or (gethash line numbers)
+                (puthash line (hash-table-count numbers) numbers))))
+         (a (vconcat (mapcar number old)))
+         (b (vconcat (mapcar number new)))
+         (in-a (make-hash-table))
+         (in-b (make-hash-table))
+         (a-kept nil)
+         (b-kept nil))
+    (seq-doseq (line a)
+      (puthash line t in-a))
+    (seq-doseq (line b)
+      (puthash line t in-b))
+    ;; Positions of the lines the other side holds, in order.
+    (dotimes (i (length a))
+      (when (gethash (aref a i) in-b)
+        (push i a-kept)))
+    (dotimes (j (length b))
+      (when (gethash (aref b j) in-a)
+        (push j b-kept)))
+    (let* ((a-kept (vconcat (nreverse a-kept)))
+           (b-kept (vconcat (nreverse b-kept)))
+           (matches
+            (org-records-mcp--history-matches
+             (cl-map 'vector (lambda (i) (aref a i)) a-kept)
+             (cl-map 'vector (lambda (j) (aref b j)) b-kept)))
+           (old (vconcat old))
+           (new (vconcat new))
+           (i 0)
+           (j 0)
            (edits nil))
-      (dotimes (i head)
-        (push (cons ?\s (aref a i)) edits))
-      (if (> (* rows columns) 4000000)
-          (progn
-            (dotimes (i rows)
-              (push (cons ?- (aref a (+ head i))) edits))
-            (dotimes (j columns)
-              (push (cons ?+ (aref b (+ head j))) edits)))
-        ;; LENGTHS at (I, J) is the length of the longest common
-        ;; subsequence of what follows line I of the old middle and
-        ;; line J of the new one.
-        (let ((lengths (make-vector (* (1+ rows) width) 0))
-              (i 0)
-              (j 0))
-          (cl-loop
-           for row from (1- rows) downto 0 do
-           (cl-loop
-            for column from (1- columns) downto 0 do
-            (aset
-             lengths (+ (* row width) column)
-             (if (equal
-                  (aref a (+ head row)) (aref b (+ head column)))
-                 (1+ (aref
-                      lengths (+ (* (1+ row) width) (1+ column))))
-               (max (aref lengths (+ (* (1+ row) width) column))
-                    (aref lengths (+ (* row width) (1+ column))))))))
-          (while (or (< i rows) (< j columns))
-            (cond
-             ((and (< i rows)
-                   (< j columns)
-                   (equal (aref a (+ head i)) (aref b (+ head j))))
-              (push (cons ?\s (aref a (+ head i))) edits)
-              (cl-incf i)
-              (cl-incf j))
-             ((and (< i rows)
-                   (or (= j columns)
-                       (>= (aref lengths (+ (* (1+ i) width) j))
-                           (aref lengths (+ (* i width) (1+ j))))))
-              (push (cons ?- (aref a (+ head i))) edits)
-              (cl-incf i))
-             (t
-              (push (cons ?+ (aref b (+ head j))) edits)
-              (cl-incf j))))))
-      (dotimes (i tail)
-        (push (cons ?\s (aref a (+ (- n tail) i))) edits))
+      (dolist (match
+               (append
+                (mapcar
+                 (lambda (match)
+                   (cons
+                    (aref a-kept (car match))
+                    (aref b-kept (cdr match))))
+                 matches)
+                (list (cons (length old) (length new)))))
+        (while (< i (car match))
+          (push (cons ?- (aref old i)) edits)
+          (setq i (1+ i)))
+        (while (< j (cdr match))
+          (push (cons ?+ (aref new j)) edits)
+          (setq j (1+ j)))
+        (when (< i (length old))
+          (push (cons ?\s (aref old i)) edits)
+          (setq i (1+ i))
+          (setq j (1+ j))))
       (nreverse edits))))
 
 (defconst org-records-mcp--history-context 3
@@ -9230,12 +9461,15 @@ as `diff -u' writes them."
 Each is a heading as `org-records-mcp--history-locate' returns one, or
 nil where the revision has none.  The value is an alist of `note',
 present when the heading appears, disappears or moves to another
-parent, and `diff', present when its subtree's text changed."
+parent, and `diff', present when its subtree's text changed.  A
+move is a change of parent, see
+`org-records-mcp--history-same-parent-p', and the note names the two
+by their outline paths."
   (let* ((diff
           (org-records-mcp--history-diff
            (plist-get older :text) (plist-get newer :text)))
-         (older-parent (butlast (plist-get older :path)))
-         (newer-parent (butlast (plist-get newer :path)))
+         (older-parent (plist-get older :parent))
+         (newer-parent (plist-get newer :parent))
          (note
           (cond
            ((and newer (not older))
@@ -9245,12 +9479,13 @@ parent, and `diff', present when its subtree's text changed."
            ((and older
                  newer
                  (not
-                  (org-records-mcp--history-paths-equal-p
+                  (org-records-mcp--history-same-parent-p
                    older-parent newer-parent)))
             (format "moves from %s to %s"
-                    (org-records-mcp--history-path-text older-parent)
                     (org-records-mcp--history-path-text
-                     newer-parent))))))
+                     (plist-get older-parent :path))
+                    (org-records-mcp--history-path-text
+                     (plist-get newer-parent :path)))))))
     (when (or note diff)
       `(,@
         (when note
@@ -9269,9 +9504,10 @@ of `org-records-mcp--with-history-scratch'."
     (insert text)
     (let ((id (plist-get heading :id))
           (custom-id (plist-get heading :custom-id)))
-      (or (and id (org-find-entry-with-id id))
+      (or (and id (org-records-mcp--history-find-property "ID" id))
           (and custom-id
-               (org-find-property "CUSTOM_ID" custom-id))))))
+               (org-records-mcp--history-find-property
+                "CUSTOM_ID" custom-id))))))
 
 (defun org-records-mcp--history-elsewhere
     (repository commit heading arrived)
@@ -11401,8 +11637,9 @@ Parameters:
             time or later.
   limit - The most revisions to return (integer, optional)
           The newest come back, and complete says whether older
-          ones were left unread.  0 asks for no cap, as leaving it
-          out does.
+          ones were left unread.  It does not lift
+          org-records-mcp-history-max-revisions, which counts the
+          window.  0 asks for no cap, as leaving it out does.
   files - Files and directories to look up an id: link in (array of
           strings, optional); see org-node-read
 
@@ -11423,7 +11660,8 @@ Returns: JSON object with:
               revision before (string, absent when only note
               changed); and note (string, only when there is one):
               \"appears\", \"disappears\", \"moves from A to B\"
-              when the heading went under another parent, or
+              when the heading went under another parent heading
+              (a parent renamed is no move), or
               \"moves from FILE\" and \"moves to FILE\" when one
               commit refiled it between this file and FILE.
 

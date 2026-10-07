@@ -62,7 +62,13 @@ before and after, so that revision carries a =note= and no =diff=.
 
 A move is one of two notes. =moves from A to B= is a move under another parent
 in the same file, =A= and =B= the parents' outline paths, their titles joined by
-=/=, or =the top level=. =moves from FILE= and =moves to FILE= stand where the
+=/=, or =the top level=. Another parent is another heading, not another title:
+two parents carrying an =ID= are one heading when it is the same, two carrying a
+=CUSTOM_ID= likewise, and two carrying neither when they stand at the same place
+in the outline or under the same titles. So a parent renamed, or one whose TODO
+keyword changes between one the file's keywords name and one they do not, is
+no move of the headings under it, and a heading moved between two parents of the
+same title is one when an identifier tells them apart. =moves from FILE= and =moves to FILE= stand where the
 heading would appear or disappear, when one commit took it out of one file and
 wrote it into the other: the heading carries an =ID= or a =CUSTOM_ID=, and of
 the other Org files that commit changed, =FILE= is the one that held it before
@@ -96,7 +102,15 @@ again; =current= is the bound to keep for what came after an answer.
 The revisions are the commits on the first-parent line of =HEAD= that changed
 the file: a merge counts as the commit it is on that line, and the commits it
 brought in from elsewhere do not count on their own. Each revision's diff is
-taken against the one before it on that line.
+taken against the one before it on that line, and the oldest's against its own
+first parent. A commit =since= on a branch merged into the line therefore starts
+the history at the first commit of the line it does not reach, and that
+revision's diff runs from the line as it stood, not from the branch.
+
+=HEAD= is read once, when the history begins, and =current= is that commit. A
+commit landing while the history is read, as a sync committing every few
+seconds can, is in neither the revisions nor the ceiling's count, and the next
+call sending =current= as =since= sees it.
 
 * Following a heading back
 
@@ -115,7 +129,12 @@ A heading with an =ID= or a =CUSTOM_ID= is followed past a change of its title,
 and past a move to another parent, for as long as it carries either. Before it
 was given one, it is followed by the title and outline path the revision after
 reported. A heading carrying an =ID= other than the one followed is never taken
-for it, whatever its title.
+for it, whatever its title or its =CUSTOM_ID=.
+
+The followed heading is always a heading. A file whose own property drawer
+carries its =ID=, as org-roam's file nodes do, is not its earlier version: a file
+node demoted into a heading appears where it became one, and a revision in
+which the file's name held a directory holds no heading at all.
 
 A heading carrying neither is followed by its title, and that has limits a
 client should expect:
@@ -142,7 +161,9 @@ appears. A file renamed inside the window starts its history at the rename.
 
 A history reads the file once for every revision in its window, whether or not
 the revision changed the heading, and it parses each into an Org buffer of its
-own, so it blocks Emacs while it runs. As a measure: a heading followed by its
+own, so it blocks Emacs while it runs. Each diff is found with Myers's
+algorithm, in time that grows with the subtree's lines times the lines that
+changed, so a long subtree edited in a few places costs little. As a measure: a heading followed by its
 =CUSTOM_ID= through ninety revisions of a 500-line file answers in about a third
 of a second, and one followed by its title through sixty revisions of a
 1,400-line file in about a second.
@@ -155,9 +176,11 @@ Too many revisions of /home/you/org/gtd.org: more than 200 since 2026-09-01.  Se
 #+end_example
 
 It is never cut short to fit, because a history that stopped partway without
-saying so reads like a complete one. =limit= is the way to ask for less: it
-returns that many revisions, the newest, and =complete= says whether older ones
-were left unread.
+saying so reads like a complete one. =limit= is the way to ask for less of the
+answer: it returns that many revisions, the newest, and =complete= says whether
+older ones were left unread. It does not lift the ceiling, which counts the
+revisions of the window rather than the ones returned, so a window past it is
+refused whatever =limit= says; a later =since= is the remedy.
 
 * What a history never does
 
@@ -184,7 +207,7 @@ refused too. The file must be in the allowed files or permitted by
 - *Parameters:*
   - =link= (string, required): link to the heading (see [[file:links.org::*Addressing headings with links][Addressing headings with links]]): =id:<id>=, =file:/path/to/file.org::#<custom-id>= or =file:/path/to/file.org::*<title>=. A link naming a whole file is refused
   - =since= (string, required): a commit hash, or a time; see [[*Where a history starts][Where a history starts]]
-  - =limit= (integer, optional): the most revisions to return, the newest. 0 asks for no cap, as leaving it out does
+  - =limit= (integer, optional): the most revisions to return, the newest. It does not lift =org-records-mcp-history-max-revisions=. 0 asks for no cap, as leaving it out does
   - =files= (array of strings, optional): Files and directories to look up an =id:= link in, instead of the ID index; see [[file:file-access.org::*Naming the file of an ID][Naming the file of an ID]]
 - *Returns:* JSON object with =link=, =file=, =current=, =complete=, =uncommitted= and =revisions= (see [[*What a history answers][What a history answers]])
 - *Configuration:* File must be in =org-records-mcp-allowed-files=, or permitted by =org-records-mcp-file-scope-override=, and committed in a git repository; =git= must be on Emacs's =exec-path=. =org-records-mcp-history-max-revisions= caps the window

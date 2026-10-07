@@ -16,8 +16,9 @@ which heading it belongs to, and only the subtree's own text, found as Org
 finds it, does.
 
 `since` takes a commit or a time, and the answer carries `current`, the commit
-`HEAD` names, which sent back as `since` partitions the first-parent line: no
-revision is answered twice and none is skipped. A time alone cannot promise
+`HEAD` names, read once when the history begins, which sent back as `since`
+partitions the first-parent line: no revision is answered twice and none is
+skipped, a commit landing during the call included. A time alone cannot promise
 that, because commits share a second. The window counts the first-parent line
 only, so consecutive revisions are each other's parent as far as the file
 goes, whatever merges the history holds.
@@ -29,7 +30,9 @@ stated rather than hidden: a heading carrying neither identifier is not
 followed past a change of its title, and appears there. We chose that over
 guessing by position or by similarity of text, because a wrong guess hands a
 client another heading's history as this one's, and nothing in the answer
-would say so. A heading refiled between files is named as moving only when one
+would say so. A move under another parent is a change of the parent heading,
+judged by the same identifiers, else by its place or its titles, so a parent
+renamed moves nothing under it. A heading refiled between files is named as moving only when one
 commit took its ID or CUSTOM_ID out of one file and into the other, and only
 when the call could reach the other file: a history names no file a read would
 refuse.

@@ -33288,13 +33288,63 @@ it, which the last commit does not."
 
 ;; The repository
 
+(defun org-records-mcp-test--git-local-variables ()
+  "Return the variables `git rev-parse --local-env-vars' names, as this git lists them."
+  (split-string
+   (org-records-mcp-test--git temporary-file-directory "rev-parse" "--local-env-vars")
+   "\n" t))
+
+(defun org-records-mcp-test--decoy-environment (decoy)
+  "Return an environment pointing every variable git reads a repository from at DECOY.
+DECOY is a repository with a commit of its own.  Each variable
+`git rev-parse --local-env-vars' names is set to what would send git
+there, or for those naming no path, to what would change what git
+reads; one this suite does not know yet is set to a value of its own."
+  (let ((git-dir (expand-file-name ".git" decoy)))
+    (append
+     (mapcar
+      (lambda (variable)
+        (concat
+         variable "="
+         (pcase variable
+           ((or "GIT_ALTERNATE_OBJECT_DIRECTORIES" "GIT_OBJECT_DIRECTORY")
+            (expand-file-name "objects" git-dir))
+           ("GIT_CONFIG" (expand-file-name "config" git-dir))
+           ("GIT_CONFIG_PARAMETERS" "'core.bare'='true'")
+           ("GIT_CONFIG_COUNT" "1")
+           ((or "GIT_DIR" "GIT_COMMON_DIR") git-dir)
+           ("GIT_WORK_TREE" decoy)
+           ("GIT_IMPLICIT_WORK_TREE" "0")
+           ("GIT_GRAFT_FILE" (expand-file-name "info/grafts" git-dir))
+           ("GIT_INDEX_FILE" (expand-file-name "index" git-dir))
+           ("GIT_NO_REPLACE_OBJECTS" "1")
+           ("GIT_REPLACE_REF_BASE" "refs/decoy/")
+           ("GIT_PREFIX" "decoy/")
+           ("GIT_SHALLOW_FILE" (expand-file-name "shallow" git-dir))
+           (_ "decoy"))))
+      (org-records-mcp-test--git-local-variables))
+     '("GIT_CONFIG_KEY_0=core.bare" "GIT_CONFIG_VALUE_0=true"))))
+
+(ert-deftest org-records-mcp-test-history-scrubs-every-variable-git-reads-a-repository-from ()
+  "Every variable `git rev-parse --local-env-vars' names is one a history unsets.
+The list is git's, and a git that adds a variable to it fails this
+until the history unsets that one too.  The suite's own list, which
+keeps the tests' git calls in their own repositories, covers it as
+well.  Either may name more than an older git lists."
+  (org-records-mcp-test--with-history (_file _commits) nil
+    (let ((listed (org-records-mcp-test--git-local-variables)))
+      (should listed)
+      (should-not (seq-difference listed org-records-mcp--git-repository-variables))
+      (should-not (seq-difference listed org-records-mcp-test--git-repository-variables)))))
+
 (ert-deftest org-records-mcp-test-history-reads-the-repository-its-file-is-in ()
   "A history reads the repository its file is in, whatever git's environment names.
 An Emacs started from a git hook carries `GIT_DIR' and
-`GIT_INDEX_FILE' naming the repository the hook runs for.  Here they
-name a decoy repository with commits of its own, and the history is
-still the file's: its `current' is the file's last commit, and the
-decoy's configuration and index are as they were."
+`GIT_INDEX_FILE' naming the repository the hook runs for.  Here every
+variable git reads a repository from names a decoy repository with a
+commit of its own, or would make the file's repository read as bare,
+and the history is still the file's: its `current' is the file's last
+commit, and the decoy's configuration and index are as they were."
   (org-records-mcp-test--with-history (file commits)
       `(("2026-10-07T15:00:00" ,org-records-mcp-test--history-loop)
         ("2026-10-07T16:10:00" ,org-records-mcp-test--history-loop-noted))
@@ -33311,10 +33361,8 @@ decoy's configuration and index are as they were."
                            (expand-file-name "index" git-dir)))
                    (answer
                     (let ((process-environment
-                           (append
-                            (list (concat "GIT_DIR=" git-dir)
-                                  (concat "GIT_INDEX_FILE=" (expand-file-name "index" git-dir)))
-                            process-environment)))
+                           (append (org-records-mcp-test--decoy-environment decoy)
+                                   process-environment)))
                       (org-records-mcp-test--history
                        (org-records-mcp-test--file-link file "#loop") "2026-10-07T16:00"))))
               (should (equal (alist-get 'current answer) (nth 1 commits)))
@@ -33462,6 +33510,483 @@ org-records-mcp-history-max-revisions sets the ceiling\\'")
         (let ((exec-path nil))
           (org-records-mcp-test--refusal-message
            "org-node-history" `((link . ,link) (since . "2026-10-07")))))))))
+
+;; Following a heading back: what is not the heading
+
+(defconst org-records-mcp-test--history-ship-as-file
+  ":PROPERTIES:
+:ID: 6f1c9a52-0b7e-4c1e-9a43-2d8e5b7c1f00
+:END:
+#+title: Ship
+Plan.
+"
+  "A file whose own drawer carries Ship's ID, before Ship is a heading.")
+
+(defconst org-records-mcp-test--history-ship-as-heading
+  "* Ship
+:PROPERTIES:
+:ID: 6f1c9a52-0b7e-4c1e-9a43-2d8e5b7c1f00
+:END:
+Plan.
+"
+  "`org-records-mcp-test--history-ship-as-file' demoted into a heading.")
+
+(ert-deftest org-records-mcp-test-history-starts-where-a-file-node-became-the-heading ()
+  "A file's own drawer carrying the followed ID is no heading, so the history starts after it.
+Ship was a whole file, its ID in the file's drawer, and became a
+heading carrying that ID, as org-roam demotes a file node.  The file
+node is not the heading's earlier version: the heading appears where
+it was written as one."
+  (org-records-mcp-test--with-history (file commits)
+      `(("2026-10-07T15:00:00" ,org-records-mcp-test--history-ship-as-file)
+        ("2026-10-07T16:10:00" ,org-records-mcp-test--history-ship-as-heading))
+    (should
+     (equal
+      (alist-get
+       'revisions
+       (org-records-mcp-test--history
+        (concat "id:" org-records-mcp-test--history-ship-id) "2026-10-07T15:00"
+        `(files . [,file])))
+      `[((revision . ,(nth 1 commits))
+         (time . "2026-10-07T16:10:00")
+         (note . "appears")
+         (diff . "@@ -0,0 +1,5 @@
++* Ship
++:PROPERTIES:
++:ID: 6f1c9a52-0b7e-4c1e-9a43-2d8e5b7c1f00
++:END:
++Plan."))]))))
+
+(defconst org-records-mcp-test--history-ship-custom-other-id
+  "* Ship
+:PROPERTIES:
+:ID: 0d7c2b1e-5f3a-4b8e-8c6d-9e1f2a3b4c5d
+:CUSTOM_ID: ship
+:END:
+Plan.
+"
+  "Ship's CUSTOM_ID on a heading carrying an ID other than Ship's.")
+
+(defconst org-records-mcp-test--history-ship-custom
+  "* Ship
+:PROPERTIES:
+:ID: 6f1c9a52-0b7e-4c1e-9a43-2d8e5b7c1f00
+:CUSTOM_ID: ship
+:END:
+Plan.
+"
+  "Ship, carrying both its ID and its CUSTOM_ID.")
+
+(ert-deftest org-records-mcp-test-history-never-takes-a-custom-id-carrier-with-another-id ()
+  "A heading carrying the followed CUSTOM_ID and another ID is another heading.
+Before Ship's ID was written its CUSTOM_ID stood on a heading
+carrying an ID of its own, so Ship appears where its ID does."
+  (org-records-mcp-test--with-history (file commits)
+      `(("2026-10-07T15:00:00" ,org-records-mcp-test--history-ship-custom-other-id)
+        ("2026-10-07T16:10:00" ,org-records-mcp-test--history-ship-custom))
+    (should
+     (equal
+      (mapcar
+       (lambda (revision)
+         (cons (alist-get 'revision revision) (alist-get 'note revision)))
+       (alist-get
+        'revisions
+        (org-records-mcp-test--history
+         (org-records-mcp-test--file-link file "#ship") "2026-10-07T15:00")))
+      (list (cons (nth 1 commits) "appears"))))))
+
+(defconst org-records-mcp-test--history-parent-alpha
+  "* Alpha
+** Task
+Body.
+* PROJ Beta
+** Chore
+Body.
+"
+  "Two parents carrying no identifier, Beta under a keyword Org does not know.")
+
+(defconst org-records-mcp-test--history-parent-renamed
+  "* Alpha renamed
+** Task
+Body.
+* PROJ Beta
+** Chore
+Body.
+"
+  "`org-records-mcp-test--history-parent-alpha' with Alpha renamed.")
+
+(defconst org-records-mcp-test--history-parent-keyword
+  "* Alpha renamed
+** Task
+Body.
+* DONE Beta
+** Chore
+Body.
+"
+  "`org-records-mcp-test--history-parent-renamed' with Beta's keyword one Org knows.")
+
+(defconst org-records-mcp-test--history-twin-parents
+  "* Alpha
+:PROPERTIES:
+:CUSTOM_ID: alpha-one
+:END:
+** Task
+Body.
+* Alpha
+:PROPERTIES:
+:CUSTOM_ID: alpha-two
+:END:
+"
+  "Two parents of the same title, told apart by their CUSTOM_IDs, Task under the first.")
+
+(defconst org-records-mcp-test--history-twin-parents-moved
+  "* Alpha
+:PROPERTIES:
+:CUSTOM_ID: alpha-one
+:END:
+* Alpha
+:PROPERTIES:
+:CUSTOM_ID: alpha-two
+:END:
+** Task
+Body.
+"
+  "`org-records-mcp-test--history-twin-parents' with Task moved under the second Alpha.")
+
+(ert-deftest org-records-mcp-test-history-notes-a-move-only-when-the-parent-changes ()
+  "A move is a heading going under another parent, not its parent changing title.
+Renaming Alpha, and Beta's keyword changing from one the file's
+keywords do not name to one they do, change the titles above Task
+and Chore and not their parents, so neither is a revision of them.
+Task moving between two parents of the same title is a move, since
+the parents' CUSTOM_IDs tell them apart."
+  (org-records-mcp-test--with-history (file _commits)
+      `(("2026-10-07T15:00:00" ,org-records-mcp-test--history-parent-alpha)
+        ("2026-10-07T16:10:00" ,org-records-mcp-test--history-parent-renamed)
+        ("2026-10-07T16:20:00" ,org-records-mcp-test--history-parent-keyword))
+    (dolist (title '("*Task" "*Chore"))
+      (ert-info (title :prefix "Heading: ")
+        (should
+         (equal
+          (alist-get
+           'revisions
+           (org-records-mcp-test--history
+            (org-records-mcp-test--file-link file title) "2026-10-07T16:00"))
+          [])))))
+  (org-records-mcp-test--with-history (file commits)
+      `(("2026-10-07T15:00:00" ,org-records-mcp-test--history-twin-parents)
+        ("2026-10-07T16:10:00" ,org-records-mcp-test--history-twin-parents-moved))
+    (should
+     (equal
+      (alist-get
+       'revisions
+       (org-records-mcp-test--history
+        (org-records-mcp-test--file-link file "*Task") "2026-10-07T16:00"))
+      `[((revision . ,(nth 1 commits))
+         (time . "2026-10-07T16:10:00")
+         (note . "moves from Alpha to Alpha"))]))))
+
+;; Diffs
+
+(defun org-records-mcp-test--history-long-subtree (first last)
+  "Return a file whose one heading, Long, holds 2600 numbered lines.
+FIRST and LAST replace the first line and the last."
+  (concat
+   "* Long\n"
+   first "\n"
+   (mapconcat (lambda (n) (format "Line %d\n" n)) (number-sequence 2 2599) "")
+   last "\n"))
+
+(ert-deftest org-records-mcp-test-history-diffs-a-long-subtree-by-its-changes ()
+  "A long subtree changed at both ends comes back as two small hunks.
+The diff is as long as what changed and its context, however many
+lines lie between the changes."
+  (org-records-mcp-test--with-history (file commits)
+      `(("2026-10-07T15:00:00"
+         ,(org-records-mcp-test--history-long-subtree "Line 1" "Line 2600"))
+        ("2026-10-07T16:10:00"
+         ,(org-records-mcp-test--history-long-subtree "Line one" "Line end")))
+    (should
+     (equal
+      (alist-get
+       'revisions
+       (org-records-mcp-test--history
+        (org-records-mcp-test--file-link file "*Long") "2026-10-07T16:00"))
+      `[((revision . ,(nth 1 commits))
+         (time . "2026-10-07T16:10:00")
+         (diff . "@@ -1,5 +1,5 @@
+ * Long
+-Line 1
++Line one
+ Line 2
+ Line 3
+ Line 4
+@@ -2598,4 +2598,4 @@
+ Line 2597
+ Line 2598
+ Line 2599
+-Line 2600
++Line end"))]))))
+
+(defun org-records-mcp-test--history-random-lines (state)
+  "Return one to twenty lines drawn from a few, so that many of them repeat.
+STATE is the `random' seed state the draw advances."
+  (let ((pool ["a" "b" "c" "" "* d" ":END:"]))
+    (mapcar (lambda (_) (aref pool (cl-random (length pool) state)))
+            (number-sequence 1 (1+ (cl-random 20 state))))))
+
+(defun org-records-mcp-test--history-random-long-lines (state)
+  "Return 50 to 300 lines drawn from forty, so that some of them repeat.
+STATE is the `random' seed state the draw advances."
+  (mapcar (lambda (_) (format "line %d" (cl-random 40 state)))
+          (number-sequence 1 (+ 50 (cl-random 251 state)))))
+
+(defun org-records-mcp-test--history-edited-lines (lines state)
+  "Return LINES with one to eight lines taken out, put in or replaced at random.
+STATE is the `random' seed state the edits draw on."
+  (let ((result (copy-sequence lines)))
+    (dotimes (_ (1+ (cl-random 8 state)))
+      (let ((at (cl-random (1+ (length result)) state)))
+        (pcase (cl-random 3 state)
+          (0 (when (< at (length result))
+               (setq result (append (seq-take result at) (nthcdr (1+ at) result)))))
+          (1 (setq result (append (seq-take result at)
+                                  (list (format "new %d" (cl-random 1000 state)))
+                                  (nthcdr at result))))
+          (_ (when (< at (length result))
+               (setf (nth at result) (format "line %d" (cl-random 40 state))))))))
+    (or result (list "only"))))
+
+(defun org-records-mcp-test--diff-changed-lines (diff)
+  "Return how many lines of the unified DIFF are taken out or put in."
+  (cl-count-if
+   (lambda (line)
+     (and (string-match-p "\\`[-+]" line)
+          (not (string-match-p "\\`\\(?:---\\|\\+\\+\\+\\) " line))))
+   (split-string diff "\n")))
+
+(ert-deftest org-records-mcp-test-history-diff-applies-and-is-minimal ()
+  "A history's diff applies with `patch' and changes as few lines as `diff --minimal'.
+Two hundred pairs of short texts are drawn from a handful of lines,
+so that most of them repeat and the hunks fall close together, merge
+and part, and a hundred long texts are each edited in a few places
+at random, as a subtree is between two revisions.  Each diff is
+applied to the older text and has to give the newer one exactly, and
+it takes out and puts in no more lines than GNU diff does when asked
+for the smallest diff."
+  (skip-unless (and (executable-find "patch") (executable-find "diff")))
+  (let ((state (cl-make-random-state 20261007))
+        (dir (make-temp-file "org-records-mcp-test-diff-" t)))
+    (unwind-protect
+        (let ((old-file (expand-file-name "old" dir))
+              (new-file (expand-file-name "new" dir))
+              (out-file (expand-file-name "out" dir))
+              (patch-file (expand-file-name "patch" dir)))
+          (skip-unless
+           (zerop (call-process "diff" nil nil nil "--minimal" null-device null-device)))
+          (dotimes (case 300)
+            (let* ((old-lines
+                    (if (< case 200)
+                        (org-records-mcp-test--history-random-lines state)
+                      (org-records-mcp-test--history-random-long-lines state)))
+                   (new-lines
+                    (if (< case 200)
+                        (org-records-mcp-test--history-random-lines state)
+                      (org-records-mcp-test--history-edited-lines old-lines state)))
+                   (old (string-join old-lines "\n"))
+                   (new (string-join new-lines "\n"))
+                   (diff (org-records-mcp--history-diff old new)))
+              (ert-info ((format "%S -> %S" old new) :prefix "Texts: ")
+                (with-temp-file old-file (insert old "\n"))
+                (with-temp-file new-file (insert new "\n"))
+                (if (equal old new)
+                    (should-not diff)
+                  (with-temp-file patch-file
+                    (insert "--- old\n+++ new\n" diff "\n"))
+                  (should
+                   (zerop (call-process "patch" nil nil nil "-s" "-F0" "-o" out-file
+                                        old-file patch-file)))
+                  (should (equal (org-records-mcp-test--read-file-raw out-file)
+                                 (concat new "\n")))
+                  (should
+                   (<= (org-records-mcp-test--diff-changed-lines diff)
+                       (org-records-mcp-test--diff-changed-lines
+                        (with-temp-buffer
+                          (call-process "diff" nil t nil "--minimal" "-U0" old-file new-file)
+                          (buffer-string))))))))))
+      (delete-directory dir t))))
+
+;; Merges
+
+(defconst org-records-mcp-test--history-merge-base
+  "* Loop
+:PROPERTIES:
+:CUSTOM_ID: loop
+:END:
+First note.
+* Spacer
+One.
+Two.
+Three.
+* Other
+Other body.
+"
+  "A file whose two headings lie far enough apart for git to merge edits to both.")
+
+(defconst org-records-mcp-test--history-merge-side
+  "* Loop
+:PROPERTIES:
+:CUSTOM_ID: loop
+:END:
+First note.
+Second note.
+* Spacer
+One.
+Two.
+Three.
+* Other
+Other body.
+"
+  "The side branch's edit: Loop gains a note.")
+
+(defconst org-records-mcp-test--history-merge-main
+  "* Loop
+:PROPERTIES:
+:CUSTOM_ID: loop
+:END:
+First note.
+* Spacer
+One.
+Two.
+Three.
+* Other
+Other body, edited.
+"
+  "The main line's edit: Other's body changes and Loop's does not.")
+
+(defun org-records-mcp-test--git-at (repo time &rest args)
+  "Run git with ARGS in REPO as of TIME, the author and committer date.
+See `org-records-mcp-test--git'."
+  (let ((process-environment
+         (append (list (concat "GIT_AUTHOR_DATE=" time) (concat "GIT_COMMITTER_DATE=" time))
+                 process-environment)))
+    (apply #'org-records-mcp-test--git repo args)))
+
+(ert-deftest org-records-mcp-test-history-reads-a-merge-as-its-first-parent-line ()
+  "A merge is one revision of the first-parent line, and its side branch none.
+Loop gains a note on a side branch while the main line edits Other,
+and the side branch is merged back.  Whether the history starts at a
+time or at the side branch's own commit, the merge is the one
+revision that changed Loop: the side commit is not on the line, and
+the main line's commit before the merge did not change Loop."
+  (org-records-mcp-test--with-history (file commits)
+      `(("2026-10-07T15:00:00" ,org-records-mcp-test--history-merge-base))
+    (let* ((repo (file-name-directory file))
+           (main (org-records-mcp-test--git repo "rev-parse" "--abbrev-ref" "HEAD"))
+           (side nil)
+           (merge nil))
+      (org-records-mcp-test--git repo "checkout" "-q" "-b" "side")
+      (setq side (org-records-mcp-test--commit-image
+                  repo file org-records-mcp-test--history-merge-side "2026-10-07T15:10:00"))
+      (org-records-mcp-test--git repo "checkout" "-q" main)
+      (org-records-mcp-test--commit-image
+       repo file org-records-mcp-test--history-merge-main "2026-10-07T15:20:00")
+      (org-records-mcp-test--git-at repo "2026-10-07T15:30:00"
+                                    "merge" "-q" "--no-ff" "-m" "merge" "side")
+      (setq merge (org-records-mcp-test--git repo "rev-parse" "HEAD"))
+      (dolist (since (list "2026-10-07T15:05" side))
+        (ert-info (since :prefix "since: ")
+          (should
+           (equal
+            (alist-get
+             'revisions
+             (org-records-mcp-test--history
+              (org-records-mcp-test--file-link file "#loop") since))
+            `[((revision . ,merge)
+               (time . "2026-10-07T15:30:00")
+               (diff . "@@ -3,3 +3,4 @@
+ :CUSTOM_ID: loop
+ :END:
+ First note.
++Second note."))])))))))
+
+;; What git holds
+
+(ert-deftest org-records-mcp-test-history-answers-for-the-head-it-names-current ()
+  "A commit landing while a history is read is left to the next one.
+The history names the commit `HEAD' named when it began as `current',
+and every revision it reads is that commit or older, so the commit
+landing meanwhile is what a call sending `current' as `since' sees
+next.  It is not counted against the ceiling either, set here to the
+one revision the window holds when the history begins."
+  (org-records-mcp-test--with-history (file commits)
+      `(("2026-10-07T15:00:00" ,org-records-mcp-test--history-loop)
+        ("2026-10-07T16:10:00" ,org-records-mcp-test--history-loop-noted))
+    (let* ((repo (file-name-directory file))
+           (landed nil)
+           (land
+            (lambda (git &rest args)
+              (prog1 (apply git args)
+                (when (and (not landed) (member "HEAD^{commit}" args))
+                  (setq landed
+                        (org-records-mcp-test--commit-image
+                         repo file
+                         (replace-regexp-in-string
+                          "Second note\\." "Second note.\nThird note."
+                          org-records-mcp-test--history-loop-noted)
+                         "2026-10-07T16:20:00")))))))
+      (advice-add 'org-records-mcp--git :around land)
+      (let ((answer
+             (unwind-protect
+                 (let ((org-records-mcp-history-max-revisions 1))
+                   (org-records-mcp-test--history
+                    (org-records-mcp-test--file-link file "#loop") "2026-10-07T16:00"))
+               (advice-remove 'org-records-mcp--git land))))
+        (should landed)
+        (should (equal (alist-get 'current answer) (nth 1 commits)))
+        (should
+         (equal (mapcar (lambda (revision) (alist-get 'revision revision))
+                        (alist-get 'revisions answer))
+                (list (nth 1 commits))))
+        (should
+         (equal (mapcar (lambda (revision) (alist-get 'revision revision))
+                        (alist-get 'revisions
+                                   (org-records-mcp-test--history
+                                    (org-records-mcp-test--file-link file "#loop")
+                                    (alist-get 'current answer))))
+                (list landed)))))))
+
+(ert-deftest org-records-mcp-test-history-reads-a-file-that-was-a-directory ()
+  "A revision in which the file's name held a directory holds no heading.
+The file is replaced by a directory of the same name and then
+written back, and the history reads on past the directory: the
+heading disappears where the directory came and appears where the
+file did."
+  (org-records-mcp-test--with-history (file commits)
+      `(("2026-10-07T15:00:00" ,org-records-mcp-test--history-loop))
+    (let* ((repo (file-name-directory file))
+           (name (file-name-nondirectory file)))
+      (org-records-mcp-test--git repo "rm" "-q" "--" name)
+      (make-directory file)
+      (with-temp-file (expand-file-name "inner.org" file)
+        (insert "* Inner\n"))
+      (org-records-mcp-test--git repo "add" "--" name)
+      (org-records-mcp-test--git-at repo "2026-10-07T16:10:00" "commit" "-q" "-m" "directory")
+      (let ((directory (org-records-mcp-test--git repo "rev-parse" "HEAD")))
+        (org-records-mcp-test--git repo "rm" "-q" "-r" "--" name)
+        (let ((back (org-records-mcp-test--commit-image
+                     repo file org-records-mcp-test--history-loop-noted
+                     "2026-10-07T16:20:00")))
+          (should
+           (equal
+            (mapcar
+             (lambda (revision)
+               (cons (alist-get 'revision revision) (alist-get 'note revision)))
+             (alist-get
+              'revisions
+              (org-records-mcp-test--history
+               (org-records-mcp-test--file-link file "#loop") "2026-10-07T16:00")))
+            (list (cons back "appears") (cons directory "disappears")))))))))
 
 (provide 'org-records-mcp-test)
 ;;; org-records-mcp-test.el ends here
